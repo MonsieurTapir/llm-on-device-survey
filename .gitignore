@@ -1,0 +1,39 @@
+# ─── Local data; never tracked (see README "What you provide") ───
+# Optional local stack checkouts: backends fetch their pinned deps at build time;
+# point one at a clone here via its *_SOURCE_DIR override (or keep as reference).
+third_party/
+# Model vaults: multi-GB; fetch the ones you want with `bench fetch`.
+models/
+
+# ─── Backend build outputs (sources tracked, artifacts not) ───
+backends/*/build/
+# per-target packaging builds + staged contributor kits (packaging/package.sh)
+backends/*/build-dist/
+dist/
+# kits unpacked at the repo root by the run.sh/run.ps1 bootstrap
+/bench-*/
+/bench-*.tar.gz
+/bench-*.zip
+/bench-*.sha256
+/submission-*.tar.gz
+
+# ─── Runner (uv) ───
+harness/.venv/
+.venv/
+__pycache__/
+*.pyc
+analysis/__marimo__/   # marimo session cache
+
+# ─── Results — generated & local; keep only published submissions ───
+results/*
+!results/published/
+# the report is built by CI from the submissions (pages.yml); a local build
+# is a preview, never committed — committing it would make parallel
+# submission PRs collide on one generated file
+results/published/report.html
+
+# ─── Editor / OS ───
+.DS_Store
+
+# Agentic scratchpad
+artifacts/
