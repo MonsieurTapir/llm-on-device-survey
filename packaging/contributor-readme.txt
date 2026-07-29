@@ -38,5 +38,10 @@ attaching it: it's a plain .tar.gz of JSON.
 
 Problems?
 ---------
+A note on GPU errors: "ErrorDeviceLost" on a small integrated GPU is the OS
+GPU watchdog stopping a computation that ran too long — it means that device
+genuinely cannot sustain that model. Your submission records it correctly;
+nothing is wrong with your machine or setup.
+
 Open an issue: https://github.com/MonsieurTapir/llm-on-device-survey/issues/new
 and paste the output of the failing step (plus exe-error.log if it exists).

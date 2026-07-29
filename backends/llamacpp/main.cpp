@@ -295,7 +295,14 @@ bool passes_expect(const std::string & completion, const std::vector<std::string
 // ---------------------------------------------------------------- chat templating
 class Conversation {
   public:
+    // Consecutive same-role messages merge (blank-line joined) before
+    // templating: tasks may split a turn into parts (document + instruction),
+    // and strict chat templates (Mistral) reject non-alternating roles.
     void add(std::string role, std::string content) {
+        if (!roles_.empty() && roles_.back() == role) {
+            contents_.back() += "\n\n" + content;
+            return;
+        }
         roles_.push_back(std::move(role));
         contents_.push_back(std::move(content));
     }
@@ -1272,7 +1279,13 @@ int main(int argc, char ** argv) {
             return cmd_probe(args);
         }
     } catch (const std::exception & error) {
-        std::cerr << "bench-llamacpp: " << error.what() << '\n';
+        const std::string what = error.what();
+        std::cerr << "bench-llamacpp: " << what << '\n';
+        if (what.find("DeviceLost") != std::string::npos)
+            std::cerr << "bench-llamacpp: device loss usually means the OS GPU watchdog killed a "
+                         "dispatch that ran too long — this lane cannot sustain this model at "
+                         "the standard operating point. That is a finding, not a setup problem; "
+                         "the cell is reported as errored.\n";
         return 1;
     }
     return 0;

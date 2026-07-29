@@ -34,7 +34,9 @@ Backend invariants (enforced, easy to get wrong):
 - stdout = the JSON object only; everything else → stderr.
 - Greedy/argmax decode, exactly `nb_tokens` per turn, EOS ignored.
 - Prompts render through the **model's own chat template**
-  (`enable_thinking=false`) — never hand-concatenated role text.
+  (`enable_thinking=false`) — never hand-concatenated role text. Consecutive
+  same-role task messages merge (blank-line joined) before templating; strict
+  templates (Mistral) reject non-alternating roles.
 - `turn-end.completion` carries the decoded text so results stay
   eyeball-inspectable.
 - **The `warmup` span owns all first-touch setup.** Compute pipelines are built
