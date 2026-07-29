@@ -1,0 +1,60 @@
+:root {
+  --bg: #fcfcfb; --ink: #1d2229; --ink2: #5b6570; --line: #e4e2dd;
+  --card: #f4f3f0; --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16181c; --ink: #e8e6e1; --ink2: #9aa2ab; --line: #2e323a;
+          --card: #1f2228; --accent: #3987e5; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto; padding: 2rem 1.25rem 4rem; max-width: 62rem;
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
+h2 { font-size: 1.15rem; margin: 2.2rem 0 .4rem; }
+a { color: var(--accent); }
+.pitch { color: var(--ink2); margin: 0 0 .8rem; }
+.fine { color: var(--ink2); font-size: .88rem; }
+.chips { display: flex; gap: .5rem; flex-wrap: wrap; }
+.chip { background: var(--card); border-radius: 999px; padding: .15rem .7rem;
+        font-size: .85rem; color: var(--ink2); }
+.chip b { color: var(--ink); }
+
+.install { background: var(--card); border-radius: 10px; padding: 1rem 1.1rem;
+           margin-top: 1.4rem; }
+.install h2 { margin-top: 0; }
+.cmd { display: flex; align-items: center; gap: .6rem; margin: .5rem 0; }
+.cmd .os { flex: 0 0 7.5rem; color: var(--ink2); font-size: .85rem; }
+.cmd code {
+  flex: 1; overflow-x: auto; white-space: nowrap; padding: .45rem .6rem;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  font: .82rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+button.copy {
+  flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg);
+  color: var(--ink); border-radius: 6px; padding: .35rem .7rem;
+  font-size: .82rem; cursor: pointer;
+}
+button.copy:hover { border-color: var(--accent); color: var(--accent); }
+
+.island { overflow-x: auto; margin: .6rem 0; }
+.curves { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+details { margin: .5rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
+th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); }
+th { color: var(--ink2); font-weight: 600; }
+pre {
+  background: var(--card); border-radius: 8px; padding: .7rem .9rem;
+  overflow-x: auto; white-space: pre-wrap; font-size: .82rem;
+}
+footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+
+/* vega filter selects, mounted below each chart */
+.vega-bindings { margin-top: .5rem; font-size: .85rem; color: var(--ink2); }
+.vega-bindings label { margin-right: 1rem; }
+.vega-bindings select { background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 5px; padding: .15rem .4rem; }
