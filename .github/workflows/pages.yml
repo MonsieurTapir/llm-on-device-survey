@@ -1,0 +1,44 @@
+# Publish the benchmark report as the GitHub Pages site: the committed
+# results/published/report.html when one exists (submission PRs regenerate it),
+# else a freshly built empty-state page (install one-liners included).
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+      - name: Stage the report as the site root
+        # Submissions commit a regenerated report; until the first one lands,
+        # build the empty-state page (install one-liners included) fresh.
+        run: |
+          mkdir -p _site
+          if [ -f results/published/report.html ]; then
+            cp results/published/report.html _site/index.html
+          else
+            uv run --project analysis python -m bench_analysis.site --out _site/index.html
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
