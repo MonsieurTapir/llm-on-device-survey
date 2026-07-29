@@ -1,0 +1,30 @@
+# Model registry — what the benchmark runs on, and where `bench fetch` pulls it
+# from (into the untracked models/<name>/gguf/; the backend consumes those repo
+# trees directly). Exes never read this file: the harness resolves the
+# artifact path and hands the exe --model/--quant/--ep.
+#
+# Per model, a `gguf` block (for the ggml backend) naming a Hub repo, a
+# `common` glob list (shared config/tokenizer), and a `quants` map. The quant
+# key IS the wire enum (fp16|q8|q4) — no normalization; one variant per
+# declared quant actually fetched, and a declared-but-unfetched quant is
+# skipped with a loud warning, never silently. Quant labels are stack-specific
+# math (q4 = Q4_K_M): qualify comparisons by stack versions.
+
+gemma4-E2B:
+  gguf:
+    repo: https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF
+    common: ["config.json"]
+    quants:
+      q4: { files: ["gemma-4-E2B-it-Q4_K_M.gguf"] }
+Ministral3-3B:
+  gguf:
+    repo: https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF
+    common: []  # the GGUF repo ships no shared config files
+    quants:
+      q4: { files: ["Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"] }
+Qwen3.5-4B:
+  gguf:
+    repo: https://huggingface.co/unsloth/Qwen3.5-4B-GGUF
+    common: ["config.json"]
+    quants:
+      q4: { files: ["Qwen3.5-4B-Q4_K_M.gguf"] }
