@@ -1,0 +1,3 @@
+# cmd.exe is the one interpreter here that wants CRLF, and the kit ships the
+# checked-out file. Everything else stays LF on every platform.
+*.bat text eol=crlf

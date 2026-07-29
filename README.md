@@ -40,8 +40,13 @@ file to attach to a [submission issue][si]:
 curl -fsSL https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.sh | bash
 ```
 
-On Windows x64: download and double-click [`run.bat`][rb] (or
-`irm https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1 | iex`).
+```powershell
+# Windows x64, in PowerShell — from a clone, or standalone:
+irm https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1 | iex
+```
+
+On Windows you can also save [`run.bat`][rb] (right-click the link → *Save link
+as*) and double-click it; it fetches the rest itself.
 
 [si]: https://github.com/MonsieurTapir/llm-on-device-survey/issues/new?template=submission.yml
 [rb]: https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.bat
