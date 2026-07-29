@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>On-device LLM inference benchmark</title>
+<style>{{ css | safe }}</style>
+</head>
+<body>
+<header>
+  <h1>On-device LLM inference benchmark</h1>
+  <p class="pitch">Load time, time-to-first-token, generation speed, and memory
+    for small LLMs on consumer machines, measured with the same pinned
+    llama.cpp build everywhere.
+    <a href="{{ project_url }}">Methodology &amp; source</a>.</p>
+  {% if not empty %}
+  <div class="chips">
+    {% for s in stats %}<span class="chip"><b>{{ s.v }}</b> {{ s.k }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</header>
+
+<section class="install">
+  <h2>Add your machine</h2>
+  <div class="cmd"><span class="os">Linux / macOS</span>
+    <code id="cmd-bash">{{ install_bash }}</code>
+    <button class="copy" data-copy="cmd-bash">copy</button></div>
+  <div class="cmd"><span class="os">Windows</span>
+    <code id="cmd-ps">{{ install_ps }}</code>
+    <button class="copy" data-copy="cmd-ps">copy</button></div>
+  <p class="fine">One script: downloads a prebuilt kit and the models
+    (~8&nbsp;GB), measures for 15–60 minutes, and produces a ~300&nbsp;KB
+    results file to attach to a
+    <a href="{{ project_url }}/issues/new?template=submission.yml">submission issue</a>.</p>
+</section>
+
+{% if empty %}
+<section><p class="fine">No submissions yet.</p></section>
+{% else %}
+
+<section>
+  <h2>Results</h2>
+  <p class="fine">Each bar is one lane: one device on one machine (a CPU, an
+    iGPU under Vulkan, …). Filters are below the charts; hover a bar for
+    machine, device, and cold-start details. Bars are sorted by speed; this
+    is not a leaderboard.</p>
+  <div class="island" data-spec="grid"></div>
+</section>
+
+<section>
+  <h2>Cost curves</h2>
+  <p class="fine">Prompt-reading time vs prompt length, and generation speed
+    vs context already used (log–log).</p>
+  {% for cm in curve_models %}
+  <details>
+    <summary>{{ cm.model }}</summary>
+    <div class="curves">
+      {% for sid in cm.specs %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Machines</h2>
+  <table>
+    <thead><tr><th>machine</th><th>CPU</th><th>GPU</th><th>RAM</th></tr></thead>
+    <tbody>
+    {% for m in machines %}
+      <tr><td>{{ m.machine }}</td><td>{{ m.cpu }}</td><td>{{ m.gpu }}</td><td>{{ m.ram }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if ceilings %}
+  <details><summary>Device ceilings (bare probes: f16 GEMM, on-device copies)</summary>
+  <table>
+    <thead><tr><th>lane</th><th>GEMM TFLOP/s</th><th>d2d GB/s</th></tr></thead>
+    <tbody>
+    {% for c in ceilings %}
+      <tr><td>{{ c.lane }}</td><td>{{ c.gemm }}</td><td>{{ c.d2d }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </details>
+  {% endif %}
+  {% if unusable %}
+  <details><summary>Unmeasurable cells ({{ unusable | length }}): too slow or errored</summary>
+  <table>
+    <thead><tr><th>lane</th><th>machine</th><th>model</th><th>quant</th><th>status</th></tr></thead>
+    <tbody>
+    {% for u in unusable %}
+      <tr><td>{{ u.lane }}</td><td>{{ u.machine }}</td><td>{{ u.model }}</td><td>{{ u.quant }}</td><td>{{ u.status }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </details>
+  {% endif %}
+</section>
+
+{% if completions %}
+<section>
+  <h2>Output samples</h2>
+  <details><summary>One completion per model, as decoded during the run</summary>
+    {% for c in completions %}
+    <p class="fine">{{ c.who }}</p>
+    <pre>{{ c.text }}</pre>
+    {% endfor %}
+  </details>
+</section>
+{% endif %}
+{% endif %}
+
+<footer>
+  <p class="fine">Built {{ built }} ·
+    <a href="{{ project_url }}">{{ project_url }}</a> ·
+    every submission includes its raw measurement traces.</p>
+</footer>
+
+{% for sid, spec in specs.items() %}
+<script type="application/json" data-island="{{ sid }}">{{ spec | tojson }}</script>
+{% endfor %}
+<script type="application/json" id="lane-dark-map">{{ lane_dark_map | tojson }}</script>
+<script>{{ vega_js | safe }}</script>
+<script>{{ report_js | safe }}</script>
+</body>
+</html>
