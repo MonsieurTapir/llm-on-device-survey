@@ -1,0 +1,21 @@
+# The validation job — exactly one timed task. The sweeps measure the cost
+# function; this one real end-to-end workload checks, per machine, that the
+# sweep-derived parameters reproduce an actual job.
+#
+# Authoring form notes:
+#   - An assistant turn carries NO content; it is a turn to GENERATE exactly
+#     `nb_tokens` tokens (greedy, EOS ignored), optionally with an `expect` list.
+#   - A user turn's content may be `{document: corpora/<file>}`; the harness
+#     inlines the text in full — it never trims (it can't tokenize). The run path
+#     checks the exe's own token counts against `max_context_length` and warns
+#     loudly on overrun; corpora are authored to fit.
+#   - The job is open-ended, so it carries NO `expect`: we do not gate timing
+#     data on whether a small model writes a good summary.
+
+- name: summarize-large        # ~1700 prompt tokens
+  max_context_length: 2048
+  messages:
+    - {role: system, content: "You are a helpful assistant."}
+    - {role: user, content: {document: corpora/standard-time.txt}}
+    - {role: user, content: "Summarize the document."}
+    - {role: assistant, nb_tokens: 256}
