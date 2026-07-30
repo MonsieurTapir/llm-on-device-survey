@@ -252,13 +252,18 @@ def load_sweeps(root: str | Path = "results") -> pd.DataFrame:
 
 
 def load_memory(root: str | Path = "results") -> pd.DataFrame:
-    """The memory-cost-curve frame: one row per allocator context point."""
+    """The memory-cost-curve frame: one row per allocator context point.
+
+    The lane's `threads_*` widths ride along so a label built from these rows is the
+    same label the other frames produce — a CPU lane is named by its thread width."""
     rows: list[dict] = []
     for base, doc in _docs(root):
         for run in doc["runs"]:
+            run_base = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            _threads(run_base, run["threads"])
             for p in (run.get("geometry") or {}).get("memory_points") or []:
                 b = p["buffers"]
-                rows.append({**base, **{k: run[k] for k in _RUN_KEYS},
+                rows.append({**run_base,
                              "n_ctx": p["n_ctx"],
                              "weights_mb": round(sum(x["model_bytes"] for x in b) / 1e6, 1),
                              "kv_mb": round(sum(x["context_bytes"] for x in b) / 1e6, 1),
@@ -273,7 +278,11 @@ def load_thread_scaling(root: str | Path = "results") -> pd.DataFrame:
     `phase` is "prefill" | "decode". Rates compare *within* a (lane, model, phase)
     — the ladder's work units are smaller than the main sweep's and deliberately
     not comparable to it. `kv_fill` is NaN for prefill rows (measured from an empty
-    cache) and the primed depth for decode rows. Empty when no lane measured one."""
+    cache) and the primed depth for decode rows. Empty when no lane measured one.
+
+    The lane's `threads_*` widths ride along, so these rows label their lane the way
+    the other frames do and a ladder point can be read against the width the lane
+    actually runs."""
     rows: list[dict] = []
     for base, doc in _docs(root):
         for run in doc["runs"]:
@@ -281,6 +290,7 @@ def load_thread_scaling(root: str | Path = "results") -> pd.DataFrame:
             if not scaling:
                 continue
             run_base = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            _threads(run_base, run["threads"])
             for phase in ("prefill", "decode"):
                 for p in (scaling.get(phase) or {}).get("points") or []:
                     rows.append({**run_base, "phase": phase, "threads": p["threads"],

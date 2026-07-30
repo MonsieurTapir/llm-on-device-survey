@@ -3,17 +3,29 @@
 The page answers "how fast is on-device inference on real machines" one model at
 a time. A control row scopes everything below it — model, device class, quant,
 backend — and a control is rendered only where the shelf holds more than one
-value for it. Under it, three bar charts (decode tok/s, prefill tok/s, warm init)
+value for it. Under it, three charts (decode tok/s, prefill tok/s, warm init)
 share one lane axis: lanes are grouped into bands by what kind of device they are
 (discrete GPU / integrated GPU / CPU) and sorted by generation speed inside each
-band. The cost curves below read the same controls. The page opens on one fold
-(the contribute call to action) and closes on one more (the reference tables, as
-tab panels) — the charts are the only thing that greets the reader unasked.
+band. The two tok/s columns draw an interval, not a bar: both rates fall as the
+context fills, so a lane spans the range the sweep measured across depth, with a
+dot on the validation job's own number. Warm init is a bar — seconds to ready has
+no depth. Each column's heading is its x-axis title, so it sits over the plot
+area, and on the two tok/s columns that axis also carries the reading-speed
+references as its gridlines. The sections below read the same controls: what a
+task would take on each lane (the same three columns, in seconds, computed in the
+page from the measured cost functions — `assets/tasks.js`), what the first launch
+costs before any rate applies (pipeline compilation, cold first touch), the cost
+curves over depth, then the allocator's reservations against
+context size and what the process actually held while the job ran, and — on the
+shelves that measured it — what each phase of a CPU lane pays for intra-op thread
+width. The page opens on one fold (the
+contribute call to action) and closes on one more (the reference tables, as tab
+panels) — the charts are the only thing that greets the reader unasked.
 
-Two encodings, two jobs: in the grid, identity is the lane label on the axis, so
-hue is free to carry the device class (three classes, one validated triple, never
-exhausted). In the curves, identity *is* the line, so hue carries the lane — the
-first eight in a fixed order, gray past that.
+Hue means one thing on the page: which lane. A lane wears the same color in its
+grid bar as in its curves, so the two halves read as one comparison — the first
+eight lanes in a fixed order, gray past that. Device class is structure, not
+color: it is the grid's row bands, and it is in the tooltip.
 
 Rendering is escaping-by-construction: jinja autoescape for HTML, `tojson`
 for the vega spec islands (escapes `<` as \\u003c, so submission strings can
@@ -31,8 +43,10 @@ Nothing is fetched when the page is *viewed*.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import urllib.request
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -40,7 +54,7 @@ import altair as alt
 import pandas as pd
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import load_probes, load_results, load_sweeps
+from . import load_memory, load_probes, load_results, load_sweeps, load_thread_scaling
 
 PKG = Path(__file__).parent
 REPO = PKG.parents[1]  # …/analysis/bench_analysis → the repo root
@@ -57,20 +71,17 @@ INSTALL_PS = (
 
 # Lane identity colors — validated (light + dark) against the six checks;
 # assigned to lanes in fixed sorted order, never cycled past the overflow gray.
+# Every chart draws its lanes from this list through `_lane_scale`, so one lane
+# is one hue across the whole page.
 LANE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
                "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 LANE_COLORS_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500",
                     "#d55181", "#008300", "#9085e9", "#e66767"]
 LANE_OVERFLOW = "#898781"
 
-# Device classes: the band order in the grid (fastest kind of silicon first) and
-# the hue each one wears. Three slots, so the palette can never run out — the
-# triple is validated in both modes (the light green sits under 3:1 against the
-# surface, which the per-bar value labels relieve).
+# Device classes: the band order in the grid, fastest kind of silicon first. The
+# class is carried by the banding and the tooltip, not by a hue of its own.
 CLASSES = ("discrete GPU", "integrated GPU", "CPU")
-CLASS_COLORS = {"discrete GPU": LANE_COLORS[1],
-                "integrated GPU": LANE_COLORS[2],
-                "CPU": LANE_COLORS[0]}
 
 VEGA_LIBS = (
     ("vega", alt.VEGA_VERSION),
@@ -81,10 +92,86 @@ VEGA_LIBS = (
 # The spec dialect follows the vega-lite the page actually ships (see VEGA_LIBS).
 VL_SCHEMA = f"https://vega.github.io/schema/vega-lite/v{alt.VEGALITE_VERSION.split('.')[0]}.json"
 
+# The measured grid's columns. The two rate columns name the depth their dot was
+# measured at — `{job}` is filled from the rows at build time — because the section
+# below prices the same two quantities for a task the reader picks, and a rate means
+# nothing without the depth it belongs to.
 METRICS = (  # column key, title, value-label format (vega d3-format), subtitle
-    ("decode", "generation (tok/s)", ".0f", None),
-    ("prefill", "prompt reading (tok/s)", ".0f", None),
+    ("decode", "generation (tok/s)", ".0f", "dot: the {job}-token job"),
+    ("prefill", "prompt reading (tok/s)", ".0f", "dot: the {job}-token job"),
     ("init", "init, warm (s)", ".1f", "lower is better"),
+)
+
+# The task grid's three column slots. Their meaning belongs to the selected task —
+# TASKS below carries each task's own column titles, and the page re-titles the
+# axes on selection — so these keys are routing, not semantics. Value labels are
+# strings the page's arithmetic writes ("2 min 14 s", "~8.9 s"): seconds for a
+# task have no one d3 format.
+TASK_METRICS = ("ttft", "tps", "total")
+
+# The columns whose number moves with how full the context is, and which therefore
+# draw the sweep's range across depth instead of one bar. `init` is not one: it is
+# paid before the first token, once. One place to edit when the columns change.
+RANGE_METRICS = {"decode", "prefill"}
+
+# Human-scale reference speeds for the two tok/s columns, as gridlines on the
+# metric axis: a rate a reader already has a feel for, next to the measured bar.
+# Rates convert at 1 token ≈ ¾ of a word, from a 250-word page and a 90,000-word
+# book: silent reading ~200 wpm, a 60-word paragraph or a 250-word page per second, a
+# book a minute. Three per column at most — past that the chart is gridlines. Every
+# anchor is drawn; which ones can also carry their name is geometry, and
+# `_anchor_labels` works it out from the column's own numbers. `init` has no key:
+# seconds-to-ready has no reading-speed equivalent, so that column keeps ordinary
+# tick labels.
+READING_ANCHORS = {
+    "decode": ((5, "silent reading"), (130, "paragraph/s")),
+    "prefill": ((130, "paragraph/s"), (400, "page/s"), (1700, "book/min")),
+}
+
+# The task grid's generation column is the same quantity, so it carries the same two
+# references. Its numbers are computed in the page, so there is no build-time domain
+# to fit names against — these two are 26× apart, which no plot width can bring
+# together.
+TASK_ANCHORS = {"tps": ((5, "silent reading"), (130, "paragraph/s"))}
+
+# The plot area of one grid column, in pixels, and how wide a character of an axis
+# label is at `labelFontSize` 9 — measured in the shipped vega build ("130 ·
+# paragraph/s" renders 72 pixels wide, "400 · page/s" 50, "130 ¶/s" 30). Both feed
+# `_anchor_labels`, which is arithmetic about pixels and needs them.
+GRID_WIDTH = 190
+LABEL_PX_PER_CHAR = 4.3
+
+# The three tasks, in select order. Each carries its own column titles — a chat
+# turn and a background job answer different questions, and the title is where
+# that difference lives, not a footnote. Editing the token inputs edits the
+# selected task; it stays that task. `mid_unit` says what the middle column is
+# (a rate to watch, or seconds of writing); `fields` are the extra inputs the
+# task uses (context-before is a chat idea). `summarize` mirrors the validation
+# job (~1,550-token prompt, 256 tokens of reply, from empty), so its prediction
+# is read against the job's own measurement as a dot.
+TASKS = (
+    {"key": "chat", "label": "chat turn", "depth": 4096, "prompt": 120, "out": 200,
+     "measured": False, "mid_unit": "tps", "fields": ["depth"],
+     "columns": (("time to first word (s)", None),
+                 ("generation at this depth (tok/s)", None),
+                 ("whole turn (s)", "lower is better")),
+     "note": "The earlier turns already sit in the KV cache, so only the new "
+             "message is read before the first word."},
+    {"key": "summarize", "label": "read & summarize", "depth": 0, "prompt": 1550,
+     "out": 256, "measured": True, "mid_unit": "tps", "fields": [],
+     "columns": (("time to first token (s)", None),
+                 ("generation over the reply (tok/s)", None),
+                 ("total (s)", "lower is better")),
+     "note": "The whole prompt is read from empty before the first token. This is "
+             "the validation job's own shape: the dots are its measurements, so "
+             "the gap between bar and dot is this calculator's error."},
+    {"key": "extract", "label": "background extraction", "depth": 0, "prompt": 4096,
+     "out": 400, "measured": False, "mid_unit": "s", "fields": [],
+     "columns": (("reading the input (s)", None),
+                 ("writing the output (s)", None),
+                 ("done after (s)", "lower is better")),
+     "note": "Runs unattended, so only the end matters: done-after includes "
+             "loading the model."},
 )
 
 # The controls, in row order: signal name, the row field it filters, its label.
@@ -215,44 +302,156 @@ def _lane_order(df: pd.DataFrame) -> list[str]:
 
 
 # ------------------------------------------------------------------ chart specs
-def _grid_rows(df: pd.DataFrame) -> list[dict]:
+def _plain(value, digits: int = 1):
+    """A number the islands can carry: pandas hands out NaN for a stat that was
+    never measured, and the specs are strict JSON, so an absent number is None."""
+    if value is None or value != value:  # NaN-safe
+        return None
+    return round(float(value), digits)
+
+
+def _seconds(ms) -> float | None:
+    """A millisecond stat in seconds, or None where it was never measured."""
+    value = _plain(ms, 3)
+    return None if value is None else round(value / 1e3, 2)
+
+
+def _depth_ranges(sweeps: pd.DataFrame) -> dict[tuple[tuple, str], dict]:
+    """What the sweep measured across context depth, per cell and range metric.
+
+    Keyed on `((machine, backend, provider, model, quant), metric)` — the cell as
+    the results frame rows it, not the display lane, so two lanes of one machine
+    stay two keys. Decode endpoints are the tok/s at the shallowest and the deepest
+    measured `kv_fill`; prefill endpoints are the cumulative average rate
+    (`tokens / ttft`) at the shallowest and the deepest prompt depth. Published
+    sweep points arrive in whatever order the harness wrote them (`[8192, 2048, 0]`
+    is real data), so both phases sort before taking their ends."""
+    out: dict[tuple[tuple, str], dict] = {}
+    if sweeps.empty:
+        return out
+    frames: dict[str, pd.DataFrame] = {}
+    if "tps_p50" in sweeps:
+        dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)].copy()
+        dec["depth"], dec["rate"] = dec.kv_fill, dec.tps_p50
+        frames["decode"] = dec
+    if "ttft_ms" in sweeps:
+        pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.gt(0)].copy()
+        pre["depth"] = pre.tokens
+        pre["rate"] = pre.tokens / (pre.ttft_ms / 1e3)
+        frames["prefill"] = pre
+    key = ["machine", "backend", "provider", "model", "quant"]
+    for metric, frame in frames.items():
+        for cell, g in frame.sort_values("depth").groupby(key, sort=False):
+            shallow, deep = g.iloc[0], g.iloc[-1]
+            out[(cell, metric)] = {
+                "d_shallow": int(shallow.depth), "d_deep": int(deep.depth),
+                "v_shallow": round(float(shallow.rate), 2),
+                "v_deep": round(float(deep.rate), 2), "n_depths": len(g)}
+    return out
+
+
+def _range_fields(span: dict | None, value: float | None, job_at: int | None) -> dict:
+    """One range metric's interval for one cell: the sweep's endpoints, the job's
+    point, and where the label goes.
+
+    `lo`/`hi` span the *union* of the sweep's two endpoints and the job's value, so
+    the dot always sits on the rule. Most of the shelf's slow cells reached only one
+    (deep) fill before the sweep's budget ran out; drawn as a lone point with the
+    job's dot some distance off, that reads as two numbers competing rather than one
+    lane's range. `label_x` is the right edge of the row's ink: what the headroom mark
+    reserves room past, and where a status note goes. It is not where the value label
+    goes — that rides the job's dot, at `value`, because the number it prints is the
+    dot's. A cell with no sweep point keeps its job dot and draws no interval."""
+    fields = {"v_shallow": None, "v_deep": None, "d_shallow": None, "d_deep": None,
+              "n_depths": None, "job_at": job_at, "lo": None, "hi": None,
+              "label_x": value, "sweep_str": None, "job_str": None}
+    if value is not None and job_at is not None:
+        fields["job_str"] = f"{value:g} tok/s at the {_depth_str(job_at)}-token job"
+    if span:
+        fields.update(span)
+        ends = [v for v in (span["v_shallow"], span["v_deep"], value) if v is not None]
+        fields["lo"], fields["hi"] = min(ends), max(ends)
+        fields["label_x"] = fields["hi"]  # the interval's far end is the row's edge
+        # The hover must describe the ink: the interval joins the sweep's points to
+        # the job's dot, so a one-point sweep hovers as one point — never as a
+        # degenerate "17–17 range" under a rule the job's 49 visibly stretches.
+        shallow = f"{span['v_shallow']:g} at {_depth_str(span['d_shallow'])} tokens"
+        deep = f"{span['v_deep']:g} at {_depth_str(span['d_deep'])}"
+        fields["sweep_str"] = (shallow if span["d_shallow"] == span["d_deep"]
+                               else f"{shallow} → {deep}")
+    return fields
+
+
+def _speed_rank(df: pd.DataFrame) -> dict[tuple[str, str], int]:
+    """Each lane's generation-speed position within one model, keyed
+    `(model, lane)`. Every chart with a lane axis sorts on it, so the reader meets
+    the lanes in the same order wherever they appear. A lane that scored no job has
+    no position; the charts fall back to the end of the order."""
+    rank: dict[tuple[str, str], int] = {}
+    for model, g in df[df.status == "ok"].groupby("model"):
+        ordered = g.sort_values("decode_tps_p50", ascending=False)
+        rank.update({(model, lane): i for i, lane in enumerate(ordered.lane)})
+    return rank
+
+
+def _grid_rows(df: pd.DataFrame, ranges: dict[tuple[tuple, str], dict]) -> list[dict]:
     """Long-format rows for the grid: one per (lane, model, metric). Every cell of
     every measured (lane, model) is emitted — a cell with no number carries the
     reason instead — so the three metric columns keep identical rows, and no lane
     silently drops out of a band.
 
+    `value` is always the validation job's number, at its one prompt depth (that is
+    what `rank`, the tooltips and the init column read). The two range metrics carry
+    the sweep's depth range beside it (`_range_fields`), plus `job_at`: how deep the
+    job's own prompt was, derived from its rate and its time to first token rather
+    than assumed.
+
+    A cell that measured nothing carries the reason — and carries it *once*, on the
+    first column that would have shown a number, because the reason belongs to the
+    whole (lane, model) and printing it in all three columns is the same sentence
+    three times. The other columns keep the row and stay blank.
+
     `rank` is the lane's generation-speed position within its model; the y axis
     sorts on it, so all three columns order their bands the same way."""
-    rank: dict[tuple[str, str], int] = {}
-    for model, g in df[df.status == "ok"].groupby("model"):
-        ordered = g.sort_values("decode_tps_p50", ascending=False)
-        rank.update({(model, lane): i for i, lane in enumerate(ordered.lane)})
-
+    rank = _speed_rank(df)
     rows = []
     for r in df.itertuples():
-        cold = getattr(r, "cold_start_ms_p50", None)
+        # Everything a row carries is drawn or filtered on: the lane is the axis, the
+        # class is the band, and the other three are what the control row scopes by.
         base = {
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "backend": r.backend, "model": r.model, "quant": r.quant,
-            "device": r.device, "rank": rank.get((r.model, r.lane), len(rank)),
-            "cold_s": round(cold / 1e3, 1) if cold == cold and cold else None,
+            "lane": r.lane, "dev_class": r.dev_class, "backend": r.backend,
+            "model": r.model, "quant": r.quant,
+            "rank": rank.get((r.model, r.lane), len(rank)),
         }
+        cell = (r.machine, r.backend, r.provider, r.model, r.quant)
         if r.status == "ok":
             values = {"decode": r.decode_tps_p50, "prefill": r.prefill_tps_p50,
                       "init": (r.model_load_ms_p50 + r.context_init_ms_p50) / 1e3}
             note = None
+            depth = r.prefill_tps_p50 * r.ttft_ms_p50 / 1e3
+            job_at = round(depth) if depth == depth else None  # NaN-safe
         else:  # measured nothing: the band keeps the row and states why
             values = dict.fromkeys(("decode", "prefill", "init"))
             note = str(r.status).replace("_", " ")
+            job_at = None
+        told = False  # the status note, in the first column that has room for it
         for metric, value in values.items():
             usable = value is not None and value == value  # NaN-safe
-            rows.append({**base, "metric": metric,
-                         "value": round(float(value), 2) if usable else None,
-                         "note": None if usable else note})
+            value = round(float(value), 2) if usable else None
+            here = note if note and not usable and not told else None
+            told = told or here is not None
+            row = {**base, "metric": metric, "value": value, "note": here}
+            if metric in RANGE_METRICS:
+                row.update(_range_fields(ranges.get((cell, metric)), value, job_at))
+            rows.append(row)
     return rows
 
 
 def _lane_scale(lanes: list[str], colors: list[str]) -> dict:
+    """The one lane→color mapping the page has: `lanes` in their fixed order against
+    `colors`, so a lane's bar and its curve are the same hue. Past the eighth lane
+    the palette is out and the rest share `LANE_OVERFLOW` gray — those lanes are
+    told apart by the axis label in the grid, by the legend in the curves."""
     return {"domain": lanes,
             "range": [colors[i] if i < len(colors) else LANE_OVERFLOW
                       for i in range(len(lanes))]}
@@ -289,24 +488,222 @@ def _params(controls: list[dict]) -> list[dict]:
     return [{"name": c["signal"], "value": c["value"]} for c in controls]
 
 
-def _grid_spec(rows: list[dict], controls: list[dict]) -> dict:
-    """One hconcat: per metric, a bar chart banded (by device class) down a shared
-    lane axis. The leftmost column carries the band and lane labels for all three;
-    every bar carries its value, which is also the contrast relief the palette needs."""
-    tooltip = [
-        {"field": "lane", "title": "lane"},
-        {"field": "machine", "title": "machine"},
-        {"field": "device", "title": "device"},
-        {"field": "dev_class", "title": "class"},
-        {"field": "model"}, {"field": "quant"}, {"field": "backend"},
-        {"field": "value", "title": "value"},
-        {"field": "cold_s", "title": "cold first-touch (s)"},
+def _job_depth(rows: list[dict]) -> str | None:
+    """How deep the validation job's prompt was, as a heading can say it: the median
+    of the depths the rows carry, to the nearest half-thousand tokens ('~1.5k').
+
+    The two rate columns show a range over depth with the job's dot inside it, so the
+    heading has to name which of the two it is scoping. The number is read off the
+    rows (each carries its own `job_at`, derived from its rate and its time to first
+    token) rather than assumed from the task's prompt file."""
+    depths = sorted(r["job_at"] for r in rows if r.get("job_at"))
+    if not depths:
+        return None
+    median = depths[len(depths) // 2] if len(depths) % 2 else (
+        depths[len(depths) // 2 - 1] + depths[len(depths) // 2]) / 2
+    return f"~{round(median / 500) / 2:g}k"
+
+
+def _depth_str(tokens: float) -> str:
+    """A token depth as a tooltip can say it: plain under a thousand, '7.2k' above —
+    the same shorthand the axis headings use."""
+    return f"{round(tokens):,}" if tokens < 1000 else f"{round(tokens / 100) / 10:g}k"
+
+
+def _metric_spans(rows: list[dict]) -> dict[str, float]:
+    """The widest each metric column's scale can get, per metric: the row with the most
+    ink, plus the headroom mark that reserves room past it, plus a little for the
+    rounding vega's `nice` does on top (measured: a 1,040 tok/s column lands on a
+    1,300 domain). Filtering the page only takes rows away, so nothing can push a
+    column past this — which is what makes it safe to fit the anchor names against."""
+    spans: dict[str, float] = {}
+    for row in rows:
+        ink = row.get("label_x") if row["metric"] in RANGE_METRICS else row["value"]
+        if ink:
+            spans[row["metric"]] = max(spans.get(row["metric"], 0), ink * 1.16 * 1.1)
+    return spans
+
+
+def _anchor_labels(anchors: tuple, span: float | None) -> list[tuple[int, str]]:
+    """What each anchor line says, given how wide the column's scale is: its rate and
+    the reading speed it stands for, or just its rate, or nothing.
+
+    A label rides its own tick and vega culls nothing on an axis with explicit
+    `values` (checked in the shipped build: every `labelOverlap` setting draws both of
+    a colliding pair), so a column can only name the anchors that fit side by side.
+    Which anchors those are is data: on this shelf the prompt column reaches 1,040
+    tok/s, so its 130 and 400 lines land 39 pixels apart and only the first can carry
+    a name. `span` is the widest that column's scale can get — the unfiltered ink plus
+    the headroom mark, plus the little vega's `nice` rounding adds — and every filter
+    only shrinks it, which pushes the survivors further apart. So a name that fits
+    here fits in every state of the control row. Falling back from the name to the
+    bare rate keeps a line identifiable where the name will not fit; falling back to
+    nothing keeps the section's copy as the last key rather than printing text over
+    text."""
+    out: list[tuple[int, str]] = []
+    edge = None
+    for value, name in anchors:
+        if span is None:
+            out.append((value, f"{value:,} · {name}"))
+            continue
+        if value > span:
+            continue  # off the end of the scale: there is no line to name
+        x = value / span * GRID_WIDTH
+        for text in (f"{value:,} · {name}", f"{value:,}"):
+            half = len(text) * LABEL_PX_PER_CHAR / 2
+            if edge is None or x - half >= edge:
+                out.append((value, text))
+                edge = x + half + 4
+                break
+        else:
+            out.append((value, ""))
+    return out
+
+
+def _metric_axis(title: str, subtitle: str | None, anchors: tuple | None,
+                 span: float | None = None) -> dict:
+    """The x axis of one grid column: its heading *and*, where the column has
+    reading-speed anchors, its reference rules.
+
+    The heading rides the axis rather than the column, because the axis group is
+    exactly the plot area — `orient: top` with `titleAnchor: start` puts the text
+    over the first bar's left edge, where a concat title would span the lane-label
+    gutter too. The anchors are this axis's gridlines: they draw under the marks and
+    a rule that no longer fits the domain simply is not drawn, so filtering the page
+    rescales the references with the bars (a rule *mark* would stretch the domain to
+    reach itself). An anchored column's tick labels are those anchors' names, as far
+    as they fit (`_anchor_labels`); an unanchored column keeps plain numeric ticks."""
+    axis: dict = {
+        "orient": "top", "titleAnchor": "start",
+        "title": [title, subtitle] if subtitle else title,
+        "titleFontSize": 12, "titleLineHeight": 13,
+        "labelFontSize": 9, "labelOpacity": 0.7, "labelOverlap": "greedy",
+        "ticks": False, "domain": False,
+    }
+    if not anchors:
+        return {**axis, "grid": False}
+    label = "".join(f"datum.value === {v} ? '{text}' : "
+                    for v, text in _anchor_labels(anchors, span))
+    return {**axis, "grid": True, "gridDash": [1, 3], "gridOpacity": 0.4,
+            "gridColor": "currentColor", "values": [v for v, _ in anchors],
+            "labelExpr": f"{label}''"}
+
+
+def _grid_tooltip(metric: str) -> list[dict]:
+    """One cell's numbers on hover — and nothing else. Which lane, machine, model and
+    device class a row belongs to is already on the screen (the lane is the y-axis
+    label, the rest are the control row's selections), so a tooltip carries only what
+    the marks cannot: for a range metric, each end of the sweep *with the depth it was
+    measured at* — the range is unreadable without them — and the job's own value with
+    how deep its prompt was."""
+    if metric not in RANGE_METRICS:
+        return [{"field": "value", "title": "value"}]
+    return [
+        {"field": "sweep_str", "title": "sweep (tok/s)"},
+        {"field": "job_str", "title": "job (tok/s)"},
     ]
+
+
+def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict:
+    """One hconcat: per metric, a chart banded (by device class) down a shared lane
+    axis. A lane's mark wears its lane's color, the one the curves use, so the reader
+    carries a lane between the two sections; the band it sits in is its device class.
+    The leftmost column carries the band and lane labels for all three; every row
+    carries one number, which is also the contrast relief the palette needs.
+
+    The two `RANGE_METRICS` columns draw an interval — the range the sweep measured
+    from its shallowest to its deepest context depth — with a filled dot on the
+    validation job's value at its own prompt depth. The interval covers the dot, so
+    the pair reads as one lane rather than two rival numbers, and a cell the sweep
+    never reached shows the dot alone. The value label rides that dot, which is the
+    mark whose number it prints. `init` keeps a plain bar. A cell that measured
+    nothing carries its italic status note in one column (`_grid_rows`); a cell whose
+    sweep produced points but whose job did not draws the interval and no number, so
+    nothing in the row reads as a measurement the job never made.
+
+    A column's heading is its x-axis title, and the reading-speed references are that
+    axis's gridlines (see `_metric_axis`) — so both sit over the plot area and both
+    react to the controls. Vega-lite merges the axes of layers sharing a scale, so
+    exactly one layer per column carries the axis objects: the one that anchors the
+    scale (the interval's rule, or the bar)."""
     y = {"field": "lane", "type": "nominal", "title": None,
          "sort": {"field": "rank", "op": "min", "order": "ascending"}}
+    job = _job_depth(rows)
+    spans = _metric_spans(rows)
     columns = []
     for i, (metric, title, fmt, subtitle) in enumerate(METRICS):
         labelled = i == 0  # band + lane labels once, on the left
+        if subtitle and "{job}" in subtitle:
+            subtitle = subtitle.format(job=job) if job else None
+        tooltip = _grid_tooltip(metric)
+        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11}
+                  if labelled else None}
+        x_axis = _metric_axis(title, subtitle, READING_ANCHORS.get(metric),
+                              spans.get(metric))
+        color = {"field": "lane", "type": "nominal", "legend": None,
+                 "scale": _lane_scale(lanes, LANE_COLORS)}
+        text = {"type": "text", "align": "left", "dx": 4, "fontSize": 10}
+        note = {**text, "fontStyle": "italic", "opacity": 0.65}
+        if metric in RANGE_METRICS:
+            # Both things a label can sit next to — the job's dot and the rule's
+            # round cap — are about 4px of radius, so the gutter has to clear that.
+            edge = {**text, "dx": 9}
+            layer = [
+                # A rule carries no zero the way a bar does; ask for it, or a lane
+                # whose whole range sits high would read as if it started there.
+                {"transform": [{"filter": "datum.hi !== null"}],
+                 "mark": {"type": "rule", "strokeWidth": 7, "strokeCap": "round",
+                          "opacity": 0.4},
+                 "encoding": {
+                     "y": y_axis,
+                     "x": {"field": "lo", "type": "quantitative",
+                           "scale": {"zero": True}, "axis": x_axis},
+                     "x2": {"field": "hi"},
+                     "color": color, "tooltip": tooltip}},
+                {"transform": [{"filter": "datum.value !== null"}],
+                 "mark": {"type": "point", "filled": True, "size": 46,
+                          "stroke": "currentColor", "strokeWidth": 1},
+                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
+                              "color": color, "tooltip": tooltip}},
+                # The number the job measured, on the dot that marks it. Only a cell
+                # that scored one gets a label at all: the sweep's deep end is a
+                # measurement of the sweep, not of the job, and printing it here
+                # would read as the number the cell failed to produce.
+                {"transform": [{"filter": "datum.value !== null"}],
+                 "mark": edge,
+                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
+                              "text": {"field": "value", "format": fmt}}},
+                {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                 "mark": {"type": "point", "opacity": 0},
+                 "encoding": {"y": y, "x": {"field": "headroom",
+                                            "type": "quantitative"}}},
+                {"transform": [{"filter": "datum.note !== null"},
+                               {"calculate": "datum.label_x === null ? 0 : datum.label_x",
+                                "as": "note_x"}],
+                 "mark": {**note, "dx": 9},
+                 "encoding": {"y": y, "x": {"field": "note_x", "type": "quantitative"},
+                              "text": {"field": "note"}}},
+            ]
+        else:
+            layer = [
+                {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+                 "encoding": {
+                     "y": y_axis,
+                     "x": {"field": "value", "type": "quantitative", "axis": x_axis},
+                     "color": color, "tooltip": tooltip}},
+                {"transform": [{"filter": "datum.value !== null"}],
+                 "mark": text,
+                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
+                              "text": {"field": "value", "format": fmt}}},
+                {"transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
+                 "mark": {"type": "point", "opacity": 0},
+                 "encoding": {"y": y, "x": {"field": "headroom",
+                                            "type": "quantitative"}}},
+                {"transform": [{"filter": "datum.note !== null"}],
+                 "mark": note,
+                 "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
+                              "text": {"field": "note"}}},
+            ]
         columns.append({
             "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
             "facet": {"row": {"field": "dev_class", "title": None, "sort": list(CLASSES),
@@ -315,36 +712,7 @@ def _grid_spec(rows: list[dict], controls: list[dict]) -> dict:
                                          "labelPadding": 2, "labelLimit": 120}}},
             "spacing": 6,
             "resolve": {"scale": {"y": "independent"}},  # a band shows only its lanes
-            "spec": {
-                "width": 190, "height": {"step": 21},
-                "layer": [
-                    {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
-                     "encoding": {
-                         "y": {**y, "axis": {"labelLimit": 200, "labelFontSize": 11}
-                               if labelled else None},
-                         "x": {"field": "value", "type": "quantitative", "title": None},
-                         "color": {"field": "dev_class", "type": "nominal", "legend": None,
-                                   "scale": {"domain": list(CLASSES),
-                                             "range": [CLASS_COLORS[c] for c in CLASSES]}},
-                         "tooltip": tooltip,
-                     }},
-                    {"transform": [{"filter": "datum.value !== null"}],
-                     "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
-                     "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
-                                  "text": {"field": "value", "format": fmt}}},
-                    {"transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
-                     "mark": {"type": "point", "opacity": 0},
-                     "encoding": {"y": y, "x": {"field": "headroom",
-                                                "type": "quantitative"}}},
-                    {"transform": [{"filter": "datum.note !== null"}],
-                     "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10,
-                              "fontStyle": "italic", "opacity": 0.65},
-                     "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
-                                  "text": {"field": "note"}}},
-                ],
-            },
-            "title": {"text": title, "anchor": "start", "fontSize": 12,
-                      **({"subtitle": subtitle, "subtitleFontSize": 10} if subtitle else {})},
+            "spec": {"width": GRID_WIDTH, "height": {"step": 21}, "layer": layer},
         })
     return {
         "$schema": VL_SCHEMA,
@@ -352,6 +720,435 @@ def _grid_spec(rows: list[dict], controls: list[dict]) -> dict:
         "params": _params(controls),
         "hconcat": columns,
         "spacing": 26,
+        "config": {"view": {"stroke": None}, "axis": {"grid": False}},
+    }
+
+
+# ------------------------------------------------------------------------ tasks
+# A token is about ¾ of a word, which is the only unit a reader has a feel for: 4,096
+# tokens is a document, not a number. The page states the ratio once, in the controls
+# row, and `assets/tasks.js` carries the same two functions for the live hint beside
+# each input — keep the two sides in step.
+WORDS_PER_TOKEN = 0.75
+
+
+def _words(tokens: int) -> str:
+    """A token count in words, rounded to a step that reads as the estimate it is:
+    25 words under 500, 50 under 2,000, 250 above."""
+    words = tokens * WORDS_PER_TOKEN
+    step = 25 if words < 500 else 50 if words < 2000 else 250
+    return f"{round(words / step) * step:,}"
+
+
+def _workload(p: dict) -> str:
+    """One task's default configuration as the work it stands for, with the token
+    counts the arithmetic actually uses beside it. The task's own note then says how
+    that work is charged — together they make a column of seconds mean something."""
+    parts = []
+    if p["depth"]:
+        parts.append(f"~{_words(p['depth'])} words of conversation already in the "
+                     f"context ({p['depth']:,} tokens)")
+    if p["prompt"]:
+        parts.append(f"a ~{_words(p['prompt'])}-word prompt ({p['prompt']:,} tokens)")
+    if p["out"]:
+        parts.append(f"a ~{_words(p['out'])}-word reply ({p['out']:,} tokens)")
+    if not parts:
+        return ""
+    head = ", ".join(parts[:-1])
+    sentence = f"{head} and {parts[-1]}" if head else parts[-1]
+    return f"{sentence[0].upper()}{sentence[1:]}."
+
+
+def _task_geometry(sweeps: pd.DataFrame) -> dict[tuple, dict]:
+    """Per cell, what the calculator needs from the sweep besides the fitted
+    parameters: how the prefill pass was dispatched and how far the two phases
+    reached.
+
+    `w` is the widest chunk the instrumented pass dispatched. The pass walks
+    full-width chunks and then narrower ragged ones, and the fit is taken over the
+    full-width ones — so the widest chunk is the width the fit's intercept belongs
+    to. Chunk sizes are the gaps between consecutive cumulative depths, which is what
+    `load_sweeps` carries. `pre_max` / `kv_max` are the deepest prompt and the
+    deepest fill anything was measured at: past them the page still evaluates the cost
+    functions, and marks what it prints as an estimate."""
+    out: dict[tuple, dict] = {}
+    if sweeps.empty:
+        return out
+    key = ["machine", "backend", "provider", "model", "quant"]
+    if "ttft_ms" in sweeps:
+        pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.gt(0)]
+        for cell, g in pre.groupby(key, sort=False):
+            depths = sorted(int(t) for t in g.tokens)
+            chunks = [b - a for a, b in zip([0, *depths[:-1]], depths, strict=True)]
+            out.setdefault(cell, {}).update(w=max(chunks), pre_max=depths[-1])
+    if "tps_p50" in sweeps:
+        dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)]
+        for cell, g in dec.groupby(key, sort=False):
+            points = sorted([int(p.kv_fill), round(float(p.tps_p50), 2)]
+                            for p in g.itertuples())
+            out.setdefault(cell, {}).update(ladder=points, kv_max=points[-1][0])
+    return out
+
+
+def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
+    """Everything the page needs to price a task, per (lane, model): the prefill cost
+    function, the decode ladder, the once-per-launch costs, and the validation job's
+    own numbers to check the arithmetic against.
+
+    This is a data pack, not a set of chart rows — the page evaluates it, so a preset
+    and a hand-typed configuration go through exactly one code path (`assets/tasks.js`)
+    and no reload. The fit is two parameters plus its quality, kept so the page can
+    say when a prediction rests on a loose fit. `ladder` is (fill, tok/s) pairs
+    ascending; a lane the sweep only reached once has one pair, and the page holds
+    that rate flat rather than inventing a slope. `n_ctx_train` is the model's own
+    trained context — the one configuration the page refuses outright, because past
+    the *sweep's* depth there is still a fit to evaluate and an estimate to mark.
+
+    A cell with neither a fit nor a ladder is dropped: there is nothing to evaluate,
+    and the Results grid above already carries the reason it measured nothing."""
+    geo = _task_geometry(sweeps)
+    rank = _speed_rank(df)
+    records = []
+    for r in df.itertuples():
+        cell = (r.machine, r.backend, r.provider, r.model, r.quant)
+        g = geo.get(cell, {})
+        width = g.get("w")
+        b = _plain(getattr(r, "fit_intercept_ms", None), 3)
+        m = _plain(getattr(r, "fit_slope_ms_per_1k", None), 4)
+        fit = ({"w": int(width), "b": b, "m": m,
+                "r2": _plain(getattr(r, "fit_r2", None), 5),
+                "resid": _plain(getattr(r, "fit_resid_max_pct", None), 2)}
+               if width and b is not None and m is not None else None)
+        ladder = g.get("ladder") or []
+        if fit is None and not ladder:
+            continue
+        measured = None
+        if r.status == "ok":
+            measured = {"ttft": _seconds(getattr(r, "ttft_ms_p50", None)),
+                        "tps": _plain(getattr(r, "decode_tps_p50", None)),
+                        "total": _seconds(getattr(r, "completion_ms_p50", None))}
+            # The job measured a real generation rate at a real fill (its prompt
+            # plus half its reply). It joins the ladder as a point: on the slow
+            # lanes whose sweep reached one deep fill this is the difference
+            # between interpolating and holding an 8 tok/s rate against a job
+            # that measured 20 — see NOCOMMIT U10. On such lanes the summarize
+            # dot then checks prefill only; the generation point *is* the job.
+            ttft, comp = (getattr(r, "ttft_ms_p50", None),
+                          getattr(r, "completion_ms_p50", None))
+            ptps, dtps = (getattr(r, "prefill_tps_p50", None), measured["tps"])
+            if all(v is not None and v == v for v in (ttft, comp, ptps, dtps)):
+                reply = dtps * (comp - ttft) / 1e3
+                fill = round(ptps * ttft / 1e3 + reply / 2)
+                if fill > 0 and not any(abs(fill - f) < 256 for f, _ in ladder):
+                    ladder = sorted([*ladder, [fill, round(float(dtps), 2)]])
+                    g = {**g, "kv_max": max(g.get("kv_max") or 0, fill)}
+        # What a batch pays before its first document: the weights read from a warm
+        # page cache, the context allocated, and the warm pass that builds every
+        # dispatch width the run then uses.
+        spans = [_plain(getattr(r, f"{span}_ms_p50", None), 1)
+                 for span in ("model_load", "context_init", "warmup")]
+        paid = [s for s in spans if s is not None]
+        n_ctx_train = _plain(getattr(r, "geo_n_ctx_train", None), 0)
+        records.append({
+            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
+            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "rank": rank.get((r.model, r.lane), len(rank)),
+            "fit": fit, "pre_max": g.get("pre_max"),
+            "ladder": ladder, "kv_max": g.get("kv_max"),
+            # The model's own trained context: the one limit the page refuses at,
+            # because it is a fact about the model rather than about our sweep budget.
+            "n_ctx_train": None if n_ctx_train is None else int(n_ctx_train),
+            "load_s": round(sum(paid) / 1e3, 2) if paid else None,
+            "cold_s": _seconds(getattr(r, "cold_start_ms_p50", None)),
+            "first_launch_s": _compile_seconds(r),
+            "measured": measured,
+        })
+    # Each task's note opens with the work its defaults stand for, in words as well
+    # as tokens; the controls row carries the live word count as the reader types.
+    tasks = [{**t, "note": f"{_workload(t)} {t['note']}"} for t in TASKS]
+    return {"records": records, "tasks": tasks, "metrics": list(TASK_METRICS)}
+
+
+def _task_tooltip() -> list[dict]:
+    """One predicted cell on hover: its number, the one-line reason it is marked as an
+    estimate or has no number at all, and the quality of the fit underneath it. The
+    configuration is already in the controls row and the lane is the axis label, so
+    neither is repeated. The reason is a label, never a sentence — what a half-lit bar
+    means is explained once in the section's copy, where a reader can actually read it,
+    and there is exactly one reason row because a column either has a number resting on
+    something or has no number at all."""
+    return [
+        {"field": "value_label", "title": "value"},
+        {"field": "why", "title": "note"},
+        {"field": "r2", "title": "prompt fit r²"},
+        {"field": "resid", "title": "worst chunk residual (%)"},
+    ]
+
+
+def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
+    """The task grid: the same lane axis and bands as the measured grid, three
+    columns of seconds-for-a-task, and no data of its own — `assets/tasks.js` fills
+    the named `tasks` set from the pack whenever a control moves.
+
+    Layout idioms come from the measured grid (heading as the x-axis title over the
+    plot area, band and lane labels on the leftmost column only, value label then
+    headroom, italic note at the axis where there is no number). What is different is
+    what this chart is: every bar is computed, not measured. So a bar whose prediction
+    rests on something thin — a single measured fill, a loose prefill fit, a depth past
+    the one the sweep reached — is drawn at half ink and its label wears a `~`. A row
+    draws no bar only where there is nothing to evaluate: no cost function on the lane,
+    or a task past the model's own trained context. Hue is still the lane's, which is
+    why the estimate marking is opacity: a value condition carries no scale, so it adds
+    no second legend to read.
+
+    The read-&-summarize task turns on a dot per lane at the validation job's own
+    measured number, in the lane's color — prediction and measurement of the same
+    task, in the same row.
+
+    Column titles here are the first task's; the page swaps them (and the middle
+    column's reading-speed gridlines, meaningless when that column is seconds) when
+    the reader picks another task, by re-embedding this spec with the picked task's
+    `columns` — the titles live in TASKS, not here."""
+    y = {"field": "lane", "type": "nominal", "title": None,
+         "sort": {"field": "rank", "op": "min", "order": "ascending"}}
+    tooltip = _task_tooltip()
+    columns = []
+    for i, (metric, (title, subtitle)) in enumerate(zip(TASK_METRICS,
+                                                        TASKS[0]["columns"],
+                                                        strict=True)):
+        labelled = i == 0
+        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11}
+                  if labelled else None}
+        # Generation carries a reading-speed anchor (see TASK_ANCHORS);
+        # seconds-for-a-task has no reading-speed equivalent. The trimmed tick format
+        # is for the moment before the page's first insert, when the domain is empty
+        # and vega would otherwise derive six decimals of precision for a lone zero.
+        x_axis = {**_metric_axis(title, subtitle, TASK_ANCHORS.get(metric)),
+                  "format": "~r"}
+        color = {"field": "lane", "type": "nominal", "legend": None,
+                 "scale": _lane_scale(lanes, LANE_COLORS)}
+        text = {"type": "text", "align": "left", "dx": 9, "fontSize": 10}
+        columns.append({
+            "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
+            "facet": {"row": {"field": "dev_class", "title": None, "sort": list(CLASSES),
+                              "header": {"labels": labelled, "labelAngle": 0,
+                                         "labelAlign": "left", "labelFontWeight": "bold",
+                                         "labelPadding": 2, "labelLimit": 120}}},
+            "spacing": 6,
+            "resolve": {"scale": {"y": "independent"}},
+            "spec": {"width": GRID_WIDTH, "height": {"step": 21}, "layer": [
+                {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+                 "encoding": {
+                     "y": y_axis,
+                     "x": {"field": "value", "type": "quantitative",
+                           "scale": {"zero": True}, "axis": x_axis},
+                     "color": color,
+                     "opacity": {"condition": {"test": "datum.est", "value": 0.45},
+                                 "value": 1},
+                     "tooltip": tooltip}},
+                # The dot is a measurement, not a prediction, so it answers for itself:
+                # the fit quality behind the bar has nothing to do with it.
+                {"transform": [{"filter": "datum.measured !== null"}],
+                 "mark": {"type": "point", "filled": True, "size": 46,
+                          "stroke": "currentColor", "strokeWidth": 1},
+                 "encoding": {"y": y, "x": {"field": "measured", "type": "quantitative"},
+                              "color": color,
+                              "tooltip": [{"field": "measured_label",
+                                           "title": "measured, this column"}]}},
+                {"transform": [{"filter": "datum.label !== null"}],
+                 "mark": text,
+                 "encoding": {"y": y, "x": {"field": "label_x", "type": "quantitative"},
+                              "text": {"field": "label"}}},
+                {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                 "mark": {"type": "point", "opacity": 0},
+                 "encoding": {"y": y, "x": {"field": "headroom",
+                                            "type": "quantitative"}}},
+                {"transform": [{"filter": "datum.note !== null"}],
+                 "mark": {**text, "dx": 4, "fontStyle": "italic", "opacity": 0.65},
+                 "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
+                              "text": {"field": "note"}}},
+            ]},
+        })
+    return {
+        "$schema": VL_SCHEMA,
+        "data": {"name": "tasks"},  # filled by assets/tasks.js, never at build time
+        "params": _params(controls),
+        "hconcat": columns,
+        "spacing": 26,
+        "config": {"view": {"stroke": None}, "axis": {"grid": False}},
+    }
+
+
+# --------------------------------------------------------------- first launch
+# The two things a lane pays once, before any rate applies. Order is the chart's
+# group order and its opacity domain, so the solid bar is always the compile.
+LAUNCH_PHASES = ("pipeline compilation", "cold first touch")
+
+# What a lane says where there is no compile number. The two facts are separate:
+# `shader_bytes` says whether anything was compiled, `shader_cache` says whether
+# the compile started from a known-empty cache — the only state the duration means
+# anything in. The cache answers first: on a platform that pins nothing, the byte
+# count is about whatever the machine had already built.
+LAUNCH_NOTES = {
+    "cache": "shader cache not pinnable here — not measured",
+    "nothing": "nothing compiled",
+    "absent": "not measured",
+}
+
+
+def _compile_seconds(row) -> float | None:
+    """One run's warmup span as a first-launch pipeline compilation, where that is
+    what it is — otherwise None.
+
+    Three things have to hold. The lane is not a CPU lane (the GPU backend leaves a
+    fixed, model-independent pipeline set behind at registry init, so a CPU lane's
+    non-zero `shader_bytes` is that artifact and none of its warmup is compilation).
+    Something was compiled (`shader_bytes > 0`). And the harness could pin the shader
+    cache (`shader_cache == "redirected"`), which is the only state in which the
+    duration is a from-scratch compile rather than a partial cache hit."""
+    if row.family == "cpu" or row.shader_cache != "redirected":
+        return None
+    shader_bytes = _plain(getattr(row, "shader_bytes", None), 0)
+    if not shader_bytes:
+        return None
+    return _seconds(getattr(row, "shader_warmup_ms", None))
+
+
+def _launch_rows(df: pd.DataFrame) -> list[dict]:
+    """Rows for the first-launch chart: up to two phases per (lane, model).
+
+    *pipeline compilation* is the sweep's warmup span on a lane that builds compute
+    pipelines from source — so it is claimed only where the run compiled something
+    (`shader_bytes > 0`) from a cache the harness could pin (`shader_cache ==
+    'redirected'`); otherwise the row carries the reason instead of a number. CPU
+    lanes emit no compile row at all: the GPU backend leaves a fixed, model-
+    independent pipeline set behind at registry init, so their non-zero
+    `shader_bytes` is that artifact and none of their warmup is compilation.
+
+    *cold first touch* is the job's `cold_start_ms`, which the harness measures once
+    per machine and model file and attributes to the first cell that scored it — so
+    it is emitted only where it exists, never spread across the lanes that later
+    read the same warm file.
+
+    A (lane, model) with no number at all is dropped: a row of two notes and no ink
+    is not a chart row."""
+    rows: list[dict] = []
+    if df.empty:
+        return rows
+    rank = _speed_rank(df)
+    for r in df.itertuples():
+        gpu = r.family != "cpu"
+        shader_bytes = _plain(getattr(r, "shader_bytes", None), 0)
+        base = {
+            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
+            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "rank": rank.get((r.model, r.lane), len(rank)),
+        }
+        cell = []
+        if gpu:
+            pinned = r.shader_cache == "redirected"
+            compiled = shader_bytes is not None and shader_bytes > 0
+            value = _compile_seconds(r)
+            note = None if value is not None else LAUNCH_NOTES[
+                "cache" if not pinned else "nothing" if not compiled else "absent"]
+            # How much was compiled and out of which cache describe *this* phase and
+            # only this one — a cold read of the weights compiles nothing.
+            cell.append({**base, "phase": LAUNCH_PHASES[0], "seconds": value,
+                         "note": note, "cache": r.shader_cache,
+                         "mb": _plain(shader_bytes / 1e6) if shader_bytes else None})
+        cold = _seconds(getattr(r, "cold_start_ms_p50", None))
+        if cold is not None:
+            cell.append({**base, "phase": LAUNCH_PHASES[1], "seconds": cold,
+                         "note": None, "cache": None, "mb": None})
+        if any(row["seconds"] is not None for row in cell):
+            rows += cell
+    return rows
+
+
+def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict:
+    """One-time costs per lane: two grouped bars, compilation solid and cold first
+    touch half-lit, sharing the lane's own color and the lane order of the grid.
+
+    Not faceted by device class — the lanes that appear here are the ones that
+    compile or that loaded a file cold, which is a shorter list than the grid's, and
+    every bar is in the same unit. Opacity carries the phase, and its legend at the
+    bottom is the key; the color legend stays off, because the lane is already the
+    axis label. A lane with nothing to show for a phase carries the reason at the
+    axis, in the phase's own row.
+
+    The bars are one mark drawn in two phase-filtered layers, because the two phases
+    do not answer the same questions: how much was compiled and out of which cache
+    belong to the compile, and a cold read of the weights has no such fields to show.
+    The axis rides the compile layer, the one that anchors the scale — two layers on
+    one scale each defining an axis would merge into a doubled heading."""
+    y = {"field": "lane", "type": "nominal", "title": None,
+         "sort": {"field": "rank", "op": "min", "order": "ascending"},
+         "axis": {"labelLimit": 200, "labelFontSize": 11}}
+    offset = {"field": "phase", "type": "nominal",
+              "scale": {"domain": list(LAUNCH_PHASES)}}
+    # A CPU-only selection leaves this chart with nothing to draw, which collapses
+    # the domain to [0, 0] — and on a zero-width domain vega derives six decimals of
+    # tick precision, so the empty chart would read "0.000000". An explicit trimmed
+    # format keeps that lone tick at "0" without padding the populated ticks either.
+    x = {"field": "seconds", "type": "quantitative", "title": None,
+         "scale": {"zero": True}, "axis": {"format": "~r"}}
+    color = {"field": "lane", "type": "nominal", "legend": None,
+             "scale": _lane_scale(lanes, LANE_COLORS)}
+    # The phase rides `opacity`, not `fillOpacity`: vega-lite 6.4.1 compiles no
+    # legend for `fillOpacity` (verified against the shipped build), and the legend
+    # *is* the phase key. On a bar with no stroke the two channels draw the same
+    # thing. The symbols take the surface's own ink, so the pair reads as one square
+    # at two strengths in either theme.
+    opacity = {"field": "phase", "type": "nominal",
+               "scale": {"domain": list(LAUNCH_PHASES), "range": [1, 0.5]},
+               "legend": {"orient": "bottom", "title": None, "symbolType": "square",
+                          "symbolFillColor": "currentColor", "symbolStrokeWidth": 0}}
+    # The lane is the axis label and the model is a selection: what a bar cannot say
+    # is which of the two phases it is and how long that phase took.
+    common = [{"field": "phase"}, {"field": "seconds", "title": "seconds"}]
+    tooltips = {
+        LAUNCH_PHASES[0]: [*common, {"field": "mb", "title": "compiled (MB)"},
+                           {"field": "cache", "title": "shader cache"}],
+        LAUNCH_PHASES[1]: common,
+    }
+    bare_x = {k: v for k, v in x.items() if k != "axis"}  # only one layer may define it
+    bars = [
+        {"transform": [{"filter": f"datum.seconds !== null "
+                                  f"&& datum.phase === '{phase}'"}],
+         "mark": {"type": "bar", "height": 11, "cornerRadiusEnd": 3},
+         "encoding": {"y": y, "yOffset": offset, "x": x if i == 0 else bare_x,
+                      "color": color, "opacity": opacity, "tooltip": tip}}
+        for i, (phase, tip) in enumerate(tooltips.items())
+    ]
+    return {
+        "$schema": VL_SCHEMA,
+        "title": {"text": "one-time first launch (s)", "anchor": "start",
+                  "subtitle": "compilation measured from an empty shader cache; "
+                              "comparable across machines only where the cache "
+                              "could be pinned",
+                  "fontSize": 12, "subtitleFontSize": 10},
+        "data": {"values": rows},
+        "params": _params(controls),
+        "transform": _filters(controls),
+        "width": 400, "height": {"step": 30},
+        "layer": [
+            *bars,
+            {"transform": [{"filter": "datum.seconds !== null"}],
+             "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
+             "encoding": {"y": y, "yOffset": offset,
+                          "x": {"field": "seconds", "type": "quantitative"},
+                          "text": {"field": "seconds", "format": ".1f"}}},
+            {"transform": [{"calculate": "datum.seconds * 1.16", "as": "headroom"}],
+             "mark": {"type": "point", "opacity": 0},
+             "encoding": {"y": y, "x": {"field": "headroom",
+                                        "type": "quantitative"}}},
+            {"transform": [{"filter": "datum.note !== null"}],
+             "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10,
+                      "fontStyle": "italic", "opacity": 0.65},
+             "encoding": {"y": y, "yOffset": offset,
+                          "x": {"datum": 0, "type": "quantitative"},
+                          "text": {"field": "note"}}},
+        ],
         "config": {"view": {"stroke": None}, "axis": {"grid": False}},
     }
 
@@ -375,7 +1172,9 @@ def _curve_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
               "scale": {"type": "log"} if log_y else {}},
         "color": {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
                   "legend": {"orient": "bottom", "columns": 2, "title": None}},
-        "tooltip": [{"field": "lane"}, {"field": x}, {"field": y}],
+        # The point's two coordinates, read off the axes it sits between — which lane's
+        # curve it belongs to is the legend's job and the color's.
+        "tooltip": [{"field": x, "title": x_title}, {"field": y, "title": y_title}],
     }
     return {
         "$schema": VL_SCHEMA,
@@ -390,6 +1189,513 @@ def _curve_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
             {"transform": [{"filter": "datum.single"}],
              "mark": {"type": "point", "size": 70, "filled": False, "strokeWidth": 2},
              "encoding": encoding},
+        ],
+        "config": {"view": {"stroke": None}},
+    }
+
+
+# ------------------------------------------------------------------------ memory
+# What a lane says when it reports no per-process device memory. Null is not zero:
+# on unified memory there is one pool and the RSS already contains it; on a lane
+# with no per-process accounting the platform simply cannot answer.
+VRAM_NOTES = {"unified": "unified memory: in RSS", "n/a": "no per-process VRAM here"}
+
+
+def _memory_rows(mem: pd.DataFrame) -> list[dict]:
+    """Rows for the allocator curve: one per (lane, model, quant, backend, n_ctx),
+    with the three pools the allocator reserved and their total. These are the
+    allocator's own numbers at each context size the sweep sized a context for, so
+    they are exact — there is nothing to average and no spread to draw."""
+    if mem.empty:
+        return []
+    rows = []
+    for r in mem.itertuples():
+        total = r.weights_mb + r.kv_mb + r.compute_mb
+        rows.append({
+            "lane": r.lane, "dev_class": r.dev_class, "model": r.model,
+            "quant": r.quant, "backend": r.backend, "n_ctx": int(r.n_ctx),
+            "weights_mb": _plain(r.weights_mb), "kv_mb": _plain(r.kv_mb),
+            "compute_mb": _plain(r.compute_mb), "total_mb": _plain(total),
+        })
+    return rows
+
+
+def _footprint_spec(rows: list[dict], lanes: list[str], controls: list[dict]) -> dict:
+    """The allocator's reservations against context size, one lane per color.
+
+    Two lines per lane: the solid one is everything the allocator reserved, the
+    dashed one is the weights, which do not move with context. The vertical gap
+    between them is what the context itself costs — KV cache plus compute buffers —
+    at the sizes the sweep measured. Zero-based, because the question is how much of
+    a machine's memory the whole thing takes, not how the total varies."""
+    x = {"field": "n_ctx", "type": "quantitative", "title": "context size (tokens)"}
+    color = {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
+             "legend": {"orient": "bottom", "columns": 2, "title": None}}
+    # The three pools behind the two lines, and their sum: the chart draws the total
+    # and the weights floor, so the split between KV and compute is what it cannot.
+    tooltip = [
+        {"field": "n_ctx", "title": "context size (tokens)"},
+        {"field": "weights_mb", "title": "weights (MB)"},
+        {"field": "kv_mb", "title": "KV cache (MB)"},
+        {"field": "compute_mb", "title": "compute buffers (MB)"},
+        {"field": "total_mb", "title": "total reserved (MB)"},
+    ]
+
+    def y_of(field: str) -> dict:
+        return {"field": field, "type": "quantitative", "title": "MB reserved",
+                "scale": {"zero": True}}
+
+    return {
+        "$schema": VL_SCHEMA,
+        "data": {"values": rows},
+        "params": _params(controls),
+        "transform": _filters(controls),
+        "width": 400, "height": 220,
+        "layer": [
+            {"mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
+             "encoding": {"x": x, "y": y_of("total_mb"), "color": color,
+                          "tooltip": tooltip}},
+            {"mark": {"type": "line", "strokeDash": [4, 3], "strokeWidth": 2,
+                      "opacity": 0.45},
+             "encoding": {"x": x, "y": y_of("weights_mb"), "color": color,
+                          "tooltip": tooltip}},
+        ],
+        "config": {"view": {"stroke": None}},
+    }
+
+
+def _job_memory_rows(ok: pd.DataFrame, mem: pd.DataFrame) -> list[dict]:
+    """Rows for the process-level chart: one per (lane, model, quant, backend) that
+    scored a job, carrying what the process held and the allocator total to read it
+    against.
+
+    Peak resident memory is the whole process; the device-local pool is a *separate*
+    number wherever the platform reports one per process (a Vulkan lane on DRM holds
+    ~1.5 GB of host RSS and ~1.5 GB of VRAM at the same time), and null wherever it
+    does not — never zero, so a lane that cannot answer says so. The allocator
+    reference is the deepest context the ladder sized, which is why it usually sits
+    to the right of a job that ran a shallower one."""
+    if ok.empty:
+        return []
+    keys = ["lane", "model", "quant", "backend"]
+    frame = ok
+    if not mem.empty:
+        deepest = mem.loc[mem.groupby(keys, sort=False).n_ctx.idxmax()].copy()
+        deepest["alloc_total"] = (deepest.weights_mb + deepest.kv_mb
+                                 + deepest.compute_mb).round(1)
+        frame = ok.merge(deepest.rename(columns={"n_ctx": "alloc_ctx"})[
+            [*keys, "alloc_total", "alloc_ctx"]], on=keys, how="left")
+    rows = []
+    for r in frame.itertuples():
+        rss = _plain(getattr(r, "decode_rss_peak_mb_p50", None))
+        if rss is None:
+            continue  # nothing to draw a row around
+        vram = _plain(getattr(r, "decode_vram_peak_mb_p50", None))
+        alloc_ctx = _plain(getattr(r, "alloc_ctx", None), 0)
+        rows.append({
+            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
+            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "rss_peak": rss,
+            "rss_sustained": _plain(getattr(r, "decode_rss_sustained_mb_p50", None)),
+            "prefill_rss_peak": _plain(getattr(r, "prefill_rss_peak_mb_p50", None)),
+            "vram_peak": vram, "vram_method": r.vram_method,
+            "vram_note": None if vram is not None
+            else VRAM_NOTES.get(r.vram_method, "not measured"),
+            "alloc_total": _plain(getattr(r, "alloc_total", None)),
+            "alloc_ctx": int(alloc_ctx) if alloc_ctx is not None else None,
+            # The label rides past the far end of the two measured marks, so it
+            # never prints over the device-pool dot when the two pools are alike.
+            "label_x": max(v for v in (rss, vram) if v is not None),
+        })
+    return rows
+
+
+def _job_memory_spec(rows: list[dict], lanes: list[str], controls: list[dict]) -> dict:
+    """What the process held, per lane: a bar for peak resident memory, a dot for the
+    device-local pool where the platform reports one, and a thin dashed marker at the
+    allocator's total as the reference. A lane with no device-pool number carries the
+    reason under its bar instead of a dot.
+
+    The dashed marker is a rotated `stroke` symbol rather than a tick mark: vega
+    compiles a tick to a filled rect, whose stroke dash would never show."""
+    y = {"field": "lane", "type": "nominal", "title": None, "sort": lanes,
+         "axis": {"labelLimit": 200, "labelFontSize": 11}}
+    color = {"field": "lane", "type": "nominal", "legend": None,
+             "scale": _lane_scale(lanes, LANE_COLORS)}
+    # Each mark answers for itself: the bar is the process, the dashed marker is the
+    # allocator's reference, the dot is the device pool. Splitting them keeps a lane
+    # that reports no pool from printing an empty pool row — its bar never had one.
+    resident = [
+        {"field": "rss_peak", "title": "peak resident (MB)"},
+        {"field": "rss_sustained", "title": "sustained resident (MB)"},
+        {"field": "prefill_rss_peak", "title": "peak resident, prompt (MB)"},
+    ]
+    reserved = [
+        {"field": "alloc_total", "title": "allocator total (MB)"},
+        {"field": "alloc_ctx", "title": "allocator total at context"},
+    ]
+    pool = [
+        {"field": "vram_peak", "title": "peak device-local (MB)"},
+        {"field": "vram_method", "title": "device-local source"},
+    ]
+    return {
+        "$schema": VL_SCHEMA,
+        "data": {"values": rows},
+        "params": _params(controls),
+        "transform": _filters(controls),
+        "width": 400, "height": {"step": 27},
+        "layer": [
+            {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+             "encoding": {"y": y, "x": {"field": "rss_peak", "type": "quantitative",
+                                       "title": "MB"},
+                          "color": color, "tooltip": resident}},
+            {"transform": [{"filter": "datum.alloc_total !== null"}],
+             "mark": {"type": "point", "shape": "stroke", "angle": 90, "size": 200,
+                      "strokeWidth": 1.2, "strokeDash": [2, 2],
+                      "color": "currentColor", "opacity": 0.8},
+             "encoding": {"y": y, "x": {"field": "alloc_total", "type": "quantitative"},
+                          "tooltip": reserved}},
+            # The pool dot rides just above its bar: the two numbers are often within
+            # a few MB of each other (one Vulkan lane holds 1,563 MB of RSS and
+            # 1,569 MB of VRAM), and a dot at the bar's own height would read as a
+            # rounded end rather than a second measurement.
+            {"transform": [{"filter": "datum.vram_peak !== null"}],
+             "mark": {"type": "point", "filled": True, "size": 46, "yOffset": -9,
+                      "stroke": "currentColor", "strokeWidth": 1},
+             "encoding": {"y": y, "x": {"field": "vram_peak", "type": "quantitative"},
+                          "color": color, "tooltip": pool}},
+            {"mark": {"type": "text", "align": "left", "dx": 9, "fontSize": 10},
+             "encoding": {"y": y, "x": {"field": "label_x", "type": "quantitative"},
+                          "text": {"field": "rss_peak", "format": ".0f"}}},
+            {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+             "mark": {"type": "point", "opacity": 0},
+             "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}}},
+            # The note sits under its own bar: a lane label is already on the left and
+            # the row's right edge belongs to the allocator reference.
+            {"transform": [{"filter": "datum.vram_note !== null"}],
+             "mark": {"type": "text", "align": "left", "dx": 2, "dy": 10,
+                      "fontSize": 9, "fontStyle": "italic", "opacity": 0.65},
+             "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
+                          "text": {"field": "vram_note"}}},
+        ],
+        "config": {"view": {"stroke": None}, "axis": {"grid": False}},
+    }
+
+
+# ---------------------------------------------------------------- thread scaling
+# The ladder's two phases, in section order, each in the unit its fit was taken in
+# — the milliseconds of one fixed prefill chunk, the tok/s of one fixed decode
+# burst. Both work units are small and deliberately not the main sweep's, so a
+# number here means something only against the same lane's other widths. `y_title`
+# names the unit with the work unit the rows carry; `y_plain` is what it says when a
+# selection somehow mixes two work units.
+THREAD_PHASES = (
+    {"phase": "prefill", "title": "prompt reading, by thread width",
+     "subtitle": "one chunk from an empty cache per width — lower is better; "
+                 "compare widths, not charts",
+     "y_title": "ms per {n}-token chunk", "y_plain": "ms per chunk",
+     "value_title": "chunk (ms)"},
+    {"phase": "decode", "title": "generation, by thread width",
+     "subtitle": "one burst per width, at the same already-primed fill; "
+                 "compare widths, not charts",
+     "y_title": "tok/s of a {n}-token burst", "y_plain": "tok/s per burst",
+     "value_title": "burst (tok/s)"},
+)
+
+# How many points a fitted curve is drawn from, between one thread and the widest
+# width that lane measured. Enough that a hyperbola reads as a curve; the fit is
+# never sampled past its evidence.
+THREAD_FIT_SAMPLES = 40
+
+
+def _thread_curve(phase: str, fit: dict, threads: float) -> float:
+    """What a phase's fit predicts at an intra-op width. Prefill is Amdahl's form
+    (`ms = floor + scaled/N`), decode a saturating exponential
+    (`tok/s = rate_max · (1 − e^(−N/threads_scale))`) — two shapes because the two
+    phases behave differently: one keeps dividing work, the other saturates."""
+    if phase == "prefill":
+        return fit["floor_ms"] + fit["scaled_ms"] / threads
+    return fit["rate_max_tps"] * (1 - math.exp(-threads / fit["threads_scale"]))
+
+
+def _thread_fits(df: pd.DataFrame) -> dict[tuple[str, str], dict]:
+    """Per (lane, model) that measured a thread ladder: both fits, in the units they
+    were fitted in, and the width the lane actually runs each phase at.
+
+    The fits come from the results frame's `thr_*` columns — the harness fits them,
+    the report only draws them. A lane with no ladder (every GPU lane, and every
+    submission predating the measurement) carries NaN there and is absent here."""
+    fits: dict[tuple[str, str], dict] = {}
+    if df.empty or "thr_prefill_scaled_ms" not in df:
+        return fits
+    for r in df.itertuples():
+        floor = _plain(r.thr_prefill_floor_ms, 3)
+        scaled = _plain(r.thr_prefill_scaled_ms, 3)
+        prefill = None
+        if scaled is not None and floor is not None:
+            prefill = {"floor_ms": floor, "scaled_ms": scaled,
+                       "floor_pct": _plain(r.thr_prefill_floor_pct, 2),
+                       "r2": _plain(r.thr_prefill_r2, 5),
+                       "width": _plain(r.threads_batch, 0)}
+        rate_max = _plain(r.thr_decode_rate_max_tps, 3)
+        scale = _plain(r.thr_decode_threads_scale, 4)
+        decode = None
+        if rate_max is not None and scale:
+            decode = {"rate_max_tps": rate_max, "threads_scale": scale,
+                      "p90": _plain(r.thr_decode_threads_p90, 2),
+                      "r2": _plain(r.thr_decode_r2, 5),
+                      "width": _plain(r.threads_decode, 0)}
+        if prefill is None and decode is None:
+            continue
+        fits[(r.lane, r.model)] = {
+            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
+            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "prefill": prefill, "decode": decode,
+        }
+    return fits
+
+
+def _thread_rows(thr: pd.DataFrame, fits: dict[tuple[str, str], dict]) -> list[dict]:
+    """The ladder's measured points: one row per (lane, model, phase, width).
+
+    `value` is the phase's own unit — the chunk's milliseconds for prefill, the
+    burst's tok/s for decode — because those are the units the fits were taken in,
+    which is what lets both fitted parameters draw as asymptotes on the same axis.
+    `at_width` marks the width the lane actually runs: the one point in the chart
+    that is also an operating point. A prefill point has no `kv_fill` (its chunk
+    starts from an empty cache), and that reads as None, never NaN — the island is
+    strict JSON."""
+    rows: list[dict] = []
+    if thr.empty:
+        return rows
+    for r in thr.itertuples():
+        value = _plain(r.ms, 2) if r.phase == "prefill" else _plain(r.tps, 2)
+        if value is None:
+            continue
+        width = _plain(r.threads_batch if r.phase == "prefill" else r.threads_decode, 0)
+        fill = _plain(r.kv_fill, 0)
+        fit = (fits.get((r.lane, r.model)) or {}).get(r.phase) or {}
+        rows.append({
+            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
+            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "phase": r.phase, "kind": "point", "threads": int(r.threads),
+            "value": value, "tokens": int(r.tokens),
+            "kv_fill": None if fill is None else int(fill),
+            "at_width": bool(width is not None and int(width) == int(r.threads)),
+            "r2": fit.get("r2"), "n_widths": 0, "in_domain": True, "label": None,
+        })
+    widths = Counter((r["lane"], r["model"], r["phase"]) for r in rows)
+    for row in rows:  # how many widths the fit rests on, in every tooltip
+        row["n_widths"] = widths[(row["lane"], row["model"], row["phase"])]
+    return rows
+
+
+def _thread_spans(points: list[dict]) -> dict[tuple[str, str, str], dict]:
+    """Per (lane, model, phase): the widest width measured, how many widths were, and
+    the work unit they were measured on. The widest width is where a fitted curve
+    stops — the ladder walks down from the lane's own default, so there is no
+    evidence above it and none is drawn."""
+    spans: dict[tuple[str, str, str], dict] = {}
+    for row in points:
+        key = (row["lane"], row["model"], row["phase"])
+        span = spans.setdefault(key, {"widest": 0, "n": 0, "tokens": row["tokens"],
+                                      "kv_fill": row["kv_fill"]})
+        span["widest"] = max(span["widest"], row["threads"])
+        span["n"] += 1
+    return spans
+
+
+def _thread_fit_rows(fits: dict[tuple[str, str], dict],
+                     spans: dict[tuple[str, str, str], dict]) -> list[dict]:
+    """The drawn consequences of the two fits: the curve, its asymptote, and the width
+    that reaches 90% of peak decode.
+
+    The curve is sampled from one thread to the widest width that lane measured and
+    not one thread further — the ladder walks {W, W/2, W/4}, so above W there is no
+    evidence at all.
+
+    The asymptotes are the fitted parameters themselves: decode's `rate_max` is the
+    tok/s an unbounded width would approach, prefill's `floor_ms` the part of a
+    chunk no width removes. A floor fitted over two or three widths can come out
+    negative, which is not a floor — that draws no line and the table says "no
+    measurable floor" instead.
+
+    The 90%-of-peak width draws as a rule only when it falls inside the measured
+    widths; past them it would stretch the x scale to reach itself, so it becomes a
+    note at the left edge instead."""
+    rows: list[dict] = []
+    for (lane, model), rec in sorted(fits.items()):
+        for phase in (p["phase"] for p in THREAD_PHASES):
+            fit, span = rec[phase], spans.get((lane, model, phase))
+            if not fit or not span:
+                continue
+            base = {k: rec[k] for k in ("lane", "dev_class", "machine", "model",
+                                        "quant", "backend")}
+            base |= {"phase": phase, "tokens": span["tokens"],
+                     "kv_fill": span["kv_fill"], "at_width": False,
+                     "r2": fit["r2"], "n_widths": span["n"], "in_domain": True,
+                     "label": None}
+            widest = span["widest"]
+            for i in range(THREAD_FIT_SAMPLES + 1):
+                threads = 1 + (widest - 1) * i / THREAD_FIT_SAMPLES
+                rows.append({**base, "kind": "fit", "threads": round(threads, 3),
+                             "value": round(_thread_curve(phase, fit, threads), 2)})
+            if phase == "decode":
+                rows.append({**base, "kind": "asymptote", "threads": None,
+                             "value": round(fit["rate_max_tps"], 2),
+                             "label": "fitted ceiling, unbounded width"})
+                p90 = fit["p90"]
+                if p90:
+                    inside = p90 <= widest
+                    rows.append({
+                        **base, "kind": "p90", "value": None,
+                        "threads": p90 if inside else None, "in_domain": inside,
+                        "label": (f"90% of peak at {p90:g} threads" if inside
+                                  else f"90% of peak above {widest} threads")})
+            elif fit["floor_ms"] > 0:
+                rows.append({**base, "kind": "asymptote", "threads": None,
+                             "value": round(fit["floor_ms"], 2),
+                             "label": "fitted floor, no width removes it"})
+    return rows
+
+
+def _thread_scalar_rows(fits: dict[tuple[str, str], dict],
+                        spans: dict[tuple[str, str, str], dict]) -> list[dict]:
+    """The headline numbers behind the two charts, one row per (lane, model).
+
+    The width the lane runs is the one in its label; the 90%-of-peak width is where
+    decode stops paying for cores; the floor share is how much of a single thread's
+    chunk no width removes, which is why prefill keeps rewarding them. A fit taken
+    over two widths has one residual and no third point to judge it by, and a floor
+    fitted that short can come out negative — both say so rather than printing a
+    number that reads like evidence."""
+    rows = []
+    for (lane, model), rec in sorted(fits.items()):
+        pre, dec = rec["prefill"], rec["decode"]
+        counts = [spans[(lane, model, phase)]["n"]
+                  for phase in ("prefill", "decode")
+                  if (lane, model, phase) in spans]
+        if not counts:
+            continue
+        widths = [int(f["width"]) for f in (pre, dec) if f and f["width"]]
+        width = "—"
+        if widths:
+            width = (f"{widths[0]}" if len(set(widths)) == 1
+                     else f"{widths[0]} prompt / {widths[-1]} generation")
+        p90 = "—"
+        if dec and dec["p90"]:
+            widest = spans.get((lane, model, "decode"), {}).get("widest", 0)
+            past = "" if dec["p90"] <= widest else f" (above the {widest} measured)"
+            p90 = f"{dec['p90']:g} threads{past}"
+        floor = "—"
+        if pre:
+            floor = (f"{pre['floor_pct']:g}%" if pre["floor_ms"] > 0
+                     else "no measurable floor")
+        r2 = " / ".join(f"{f['r2']:.4f}" if f and f["r2"] is not None else "—"
+                        for f in (pre, dec))
+        rows.append({
+            "lane": lane, "model": model, "width": width, "p90": p90,
+            "ceiling": f"{dec['rate_max_tps']:.1f} tok/s" if dec else "—",
+            "floor": floor, "r2": r2,
+            "note": "two widths only" if min(counts) < 3 else "—",
+        })
+    return rows
+
+
+def _thread_tooltip(value_title: str, *, fill: bool) -> list[dict]:
+    """One ladder point on hover: the width, its number in the phase's own unit, the
+    fill it was primed at where a phase has one, and the quality of the fit through it.
+    The lane is the color and the legend, the work unit is in the y-axis title, and the
+    widths are the dots themselves — none of that is repeated here. A prefill chunk
+    starts from an empty cache, so that chart has no fill row at all rather than an
+    empty one."""
+    return [
+        {"field": "threads", "title": "intra-op threads"},
+        {"field": "value", "title": value_title},
+        *([{"field": "kv_fill", "title": "primed fill (tokens)"}] if fill else []),
+        {"field": "r2", "title": "fit r²"},
+    ]
+
+
+def _thread_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
+                 title: str, subtitle: str, y_title: str, value_title: str) -> dict:
+    """One phase's thread ladder: the measured widths as dots, the harness's fit as
+    the line through them, and the fit's asymptote as a dashed line.
+
+    The hollow ring is the width the lane actually runs — every other dot is a width
+    the ladder visited to find the shape. On the decode chart a dashed vertical rule
+    marks where the fit reaches 90% of its ceiling: the width past which the machine
+    stops being paid for cores.
+
+    Same frame as the cost curves (400×220, lane hue, legend at the bottom) and the
+    same controls, because it is the same lanes seen from a different axis. Unlike
+    the task grid this chart's data is built here: the domains are fixed by the
+    measurement, so nothing has to be inserted at view time."""
+    x = {"field": "threads", "type": "quantitative", "title": "intra-op threads",
+         # Threads are counted, so the axis steps in whole ones — and it starts at
+         # one thread rather than zero, which is not a width anything can run.
+         "scale": {"zero": False, "nice": False}, "axis": {"tickMinStep": 1}}
+    y = {"field": "value", "type": "quantitative", "title": y_title,
+         "scale": {"zero": True}}
+    color = {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
+             "legend": {"orient": "bottom", "columns": 2, "title": None}}
+    # Points answer with their own measurement; the two dashed lines answer with what
+    # they are, which is a fitted parameter and not a measured width at all.
+    tooltip = _thread_tooltip(
+        value_title, fill=any(r.get("kv_fill") is not None for r in rows))
+    fitted = [{"field": "label", "title": "line"}, {"field": "value", "title": value_title}]
+    reached = [{"field": "label", "title": "line"},
+               {"field": "threads", "title": "intra-op threads"}]
+    # The rule this labels is vertical, so it has no y of its own to sit at: the text
+    # is placed in pixels, at the foot of the rule. The foot rather than the head
+    # because the head is where a saturating fit's own ceiling line runs.
+    label = {"type": "text", "align": "left", "dx": 4, "fontSize": 9,
+             "baseline": "bottom"}
+    label_y = {"value": 214}  # just clear of the axis, in a 220-tall plot
+    return {
+        "$schema": VL_SCHEMA,
+        "title": {"text": title, "anchor": "start", "subtitle": subtitle,
+                  "fontSize": 12, "subtitleFontSize": 10},
+        "data": {"values": rows},
+        "params": _params(controls),
+        "transform": _filters(controls),
+        "width": 400, "height": 220,
+        "layer": [
+            # The fitted parameter as a line across the chart: prefill's floor, the
+            # part of a chunk no width removes; decode's ceiling, the rate an
+            # unbounded width would approach.
+            {"transform": [{"filter": "datum.kind === 'asymptote'"}],
+             "mark": {"type": "rule", "strokeDash": [4, 3], "strokeWidth": 1.5,
+                      "opacity": 0.55},
+             "encoding": {"y": y, "color": color, "tooltip": fitted}},
+            {"transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+             "mark": {"type": "rule", "strokeDash": [2, 3], "strokeWidth": 1.5,
+                      "opacity": 0.55},
+             "encoding": {"x": x, "color": color, "tooltip": reached}},
+            {"transform": [{"filter": "datum.kind === 'fit'"}],
+             "mark": {"type": "line", "strokeWidth": 2},
+             "encoding": {"x": x, "y": y, "color": color}},
+            {"transform": [{"filter": "datum.kind === 'point'"}],
+             "mark": {"type": "point", "filled": True, "size": 55},
+             "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip}},
+            # The operating point, ringed: the width this lane's runs are measured at
+            # everywhere else on the page.
+            {"transform": [{"filter": "datum.kind === 'point' && datum.at_width"}],
+             "mark": {"type": "point", "filled": False, "size": 110,
+                      "strokeWidth": 2},
+             "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip}},
+            {"transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+             "mark": label,
+             "encoding": {"x": x, "y": label_y, "color": color,
+                          "text": {"field": "label"}}},
+            # A 90%-of-peak width above every width measured has no rule to name: a
+            # rule there would stretch the x scale to reach itself, so the fact goes
+            # to the left edge as text.
+            {"transform": [{"filter": "datum.kind === 'p90' && !datum.in_domain"}],
+             "mark": {**label, "fontStyle": "italic"},
+             "encoding": {"x": {"datum": 1, "type": "quantitative"},
+                          "y": label_y, "color": color,
+                          "text": {"field": "label"}}},
         ],
         "config": {"view": {"stroke": None}},
     }
@@ -417,12 +1723,24 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         default_model = (ok.groupby("model").lane.nunique()
                          .sort_values(ascending=False).index[0] if len(ok)
                          else sorted(df.model.dropna().unique())[0])
-        grid_rows = _grid_rows(df)
+        sweeps = _with_lanes(load_sweeps(published))
+        grid_rows = _grid_rows(df, _depth_ranges(sweeps))
         controls = _controls(grid_rows, default_model)
         context["controls"] = [c for c in controls if c["render"]]
-        specs["grid"] = _grid_spec(grid_rows, controls)
+        specs["grid"] = _grid_spec(grid_rows, controls, lanes)
 
-        sweeps = _with_lanes(load_sweeps(published))
+        pack = _task_pack(df, sweeps)
+        if pack["records"]:
+            specs["tasks"] = _task_spec(controls, lanes)
+            context["tasks"] = True
+            context["task_pack"] = pack
+            context["task_list"] = pack["tasks"]
+
+        launch_rows = _launch_rows(df)
+        if launch_rows:
+            specs["launch"] = _launch_spec(launch_rows, controls, lanes)
+            context["launch"] = True
+
         pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.notna()].copy()
         dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)].copy()
         keep = ["lane", "dev_class", "model", "quant", "backend", "single"]
@@ -439,6 +1757,46 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
                 x="kv_fill", y="tps_p50", log_y=True,
                 x_title="context already used (tokens)", y_title="tok/s")
         context["curves"] = [sid for sid in ("curve-ttft", "curve-decode") if sid in specs]
+
+        # An empty frame has no columns for `_with_lanes` to read, and a shelf whose
+        # runs carried no allocator ladder is exactly that.
+        mem = load_memory(published)
+        if not mem.empty:
+            mem = _with_lanes(mem)
+        footprint_rows = _memory_rows(mem)
+        if footprint_rows:
+            specs["memory-footprint"] = _footprint_spec(footprint_rows, lanes, controls)
+        job_memory_rows = _job_memory_rows(ok, mem)
+        if job_memory_rows:
+            specs["memory-job"] = _job_memory_spec(job_memory_rows, lanes, controls)
+        context["memory"] = [sid for sid in ("memory-footprint", "memory-job")
+                             if sid in specs]
+
+        # The thread ladder is optional measurement: CPU lanes only, and only from
+        # submissions new enough to carry it. An empty frame has no columns for
+        # `_with_lanes` to read, so the guard comes first.
+        thr = load_thread_scaling(published)
+        thread_ids: list[str] = []
+        fits = _thread_fits(df)
+        if not thr.empty and fits:
+            points = _thread_rows(_with_lanes(thr), fits)
+            spans = _thread_spans(points)
+            rows = points + _thread_fit_rows(fits, spans)
+            for phase in THREAD_PHASES:
+                drawn = [r for r in rows if r["phase"] == phase["phase"]]
+                if not any(r["kind"] == "point" for r in drawn):
+                    continue  # a phase the ladder never reached draws nothing
+                units = {r["tokens"] for r in drawn}
+                y_title = (phase["y_title"].format(n=units.pop()) if len(units) == 1
+                           else phase["y_plain"])
+                sid = f"thread-{phase['phase']}"
+                specs[sid] = _thread_spec(
+                    drawn, lanes, controls, title=phase["title"],
+                    subtitle=phase["subtitle"], y_title=y_title,
+                    value_title=phase["value_title"])
+                thread_ids.append(sid)
+            context["thread_scalars"] = _thread_scalar_rows(fits, spans)
+        context["threads"] = thread_ids
 
         probes = _with_lanes(load_probes(published))
         ceilings = []
@@ -504,6 +1862,7 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
     env = Environment(loader=PackageLoader("bench_analysis"),
                       autoescape=select_autoescape(default=True))
     context["css"] = (PKG / "assets" / "report.css").read_text()
+    context["tasks_js"] = (PKG / "assets" / "tasks.js").read_text()
     context["report_js"] = (PKG / "assets" / "report.js").read_text()
     context["vega_js"] = _vega_js(vega_cache or REPO / "third_party" / "vega")
     out.write_text(env.get_template("report.html.j2").render(context))

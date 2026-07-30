@@ -271,7 +271,8 @@
         ],
         "warmup_ms": 1830.5,
         "shader_bytes": 5481105,
-        "shader_cache": "redirected"
+        "shader_cache": "redirected",
+        "thread_scaling": null
       },
       "job": {
         "status": "ok",
@@ -416,7 +417,8 @@
         "ubatch": [],
         "warmup_ms": 240.0,
         "shader_bytes": 4096,
-        "shader_cache": "redirected"
+        "shader_cache": "redirected",
+        "thread_scaling": null
       },
       "job": {
         "status": "too_slow",
@@ -443,7 +445,8 @@
         "ubatch": [],
         "warmup_ms": null,
         "shader_bytes": null,
-        "shader_cache": "redirected"
+        "shader_cache": "redirected",
+        "thread_scaling": null
       },
       "job": {
         "status": "errored",

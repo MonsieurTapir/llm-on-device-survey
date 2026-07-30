@@ -43,9 +43,20 @@
 
 <section>
   <h2>Results</h2>
-  <p class="fine">One model at a time. Each bar is one lane — one device on one
-    machine — banded by what kind of device it is and sorted by generation speed
-    inside its band. Hover a bar for machine, device, and cold-start details.</p>
+  <p class="fine">One model at a time. Each row is one lane — one device on one
+    machine — and its color is that lane's, the same color it has in the cost
+    curves below. The bands are device classes; inside a band, lanes are sorted
+    by generation speed. Both tok/s rates fall as the context fills, so a lane
+    spans the range the sweep measured across depth; the dot is the validation
+    job's own number, at a prompt of about 1,550 tokens, and the label reads it
+    out. A lane the sweep reached at one depth only spans that point and the dot.
+    Hover a row for both ends of the range with the depths they were measured at.
+    The dotted lines on the two tok/s columns are
+    reading-speed references, ascending from the left: on generation, silent reading
+    (5 tok/s) then a paragraph a second (130); on prompt reading, a paragraph a
+    second (130), a page a second (400), then a book a minute (1,700). A reference
+    is drawn only where it fits the current scale, and names itself on the chart
+    wherever the name fits beside its neighbour.</p>
   {% if controls %}
   <div class="controls" id="controls">
     {% for c in controls %}
@@ -63,16 +74,153 @@
   <div class="island" data-spec="grid"></div>
 </section>
 
+{% if tasks %}
+<section>
+  <h2>What a task costs</h2>
+  <p class="fine">The same lanes, in seconds for the task below. Nothing here is a
+    new measurement: each bar is the sweep's own cost functions evaluated for that
+    configuration, and past the depth a lane was measured at they are evaluated
+    anyway and the bar is marked as an estimate — the only wall is the context the
+    model itself was trained for. Pick a task or type your own; the model and device
+    selectors above scope this chart too.</p>
+  <details class="fine">
+    <summary>How to read these bars</summary>
+    <p>The prompt is priced chunk by chunk at the depth each chunk starts from, and
+      the reply is integrated over the generation rate as the context fills, so a long
+      reply is never priced at its opening rate. A half-lit bar with a <code>~</code>
+      label rests on something thin: a lane whose sweep reached a single fill, a prompt
+      fit the measured chunks scattered around, or a task deeper than the sweep went —
+      there the prompt fit is evaluated past its evidence and the generation rate is
+      held at the deepest fill measured, which may still be optimistic. A row with no
+      bar has nothing to evaluate: either the lane measured no cost function, or the
+      task does not fit the model's trained context. The dotted lines on the generation
+      column are the reading-speed references from above — silent reading (5 tok/s) and
+      a paragraph a second (130). Hover any row for the fit quality behind it and for
+      what an estimate rests on.</p>
+  </details>
+  <div class="controls" id="task-controls">
+    <label>task
+      <select id="t-preset">
+        {% for t in task_list %}
+        <option value="{{ t.key }}"{% if loop.first %} selected{% endif %}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label data-field="depth">context before
+      <input type="number" id="t-depth" min="0" max="131072" step="64"
+             value="{{ task_list[0].depth }}">
+      <span class="words" data-for="t-depth"></span></label>
+    <label>prompt
+      <input type="number" id="t-prompt" min="0" max="131072" step="64"
+             value="{{ task_list[0].prompt }}">
+      <span class="words" data-for="t-prompt"></span></label>
+    <label>reply
+      <input type="number" id="t-out" min="0" max="8192" step="64"
+             value="{{ task_list[0].out }}">
+      <span class="words" data-for="t-out"></span></label>
+    <span class="fine">counts in tokens · about ¾ of a word each</span>
+  </div>
+  <p class="fine" id="task-note"></p>
+  <div class="island" data-spec="tasks"></div>
+</section>
+{% endif %}
+
+{% if launch %}
+<section>
+  <h2>First launch</h2>
+  <p class="fine">What the same selection pays once, before any of the rates above
+    apply. Pipeline compilation is the GPU driver building this model's compute
+    pipelines from source: it is measured here from an empty shader cache, and the
+    driver keeps the result, so it is a once-per-machine cost rather than something
+    every launch pays. Cold first touch is the load with the page cache cold — the
+    weights read off storage plus the context allocation that follows. The harness
+    measures it once per machine and model, on the lane that loaded the file first,
+    so it appears on that lane and is not spread across the ones that later read
+    the same warm file. CPU lanes compile nothing for inference and are absent, so
+    a CPU-only selection leaves this chart empty. A lane whose platform exposes no
+    shader-cache path says so instead of showing a number: the compilation
+    happened, it just cannot be reported from a known-empty state, and it does not
+    compare across machines.</p>
+  <div class="island" data-spec="launch"></div>
+</section>
+{% endif %}
+
 {% if curves %}
 <section>
   <h2>Cost curves</h2>
   <p class="fine">The same selection, over depth: prompt-reading time vs prompt
-    length, and generation speed vs context already used (log tok/s). A hollow
-    mark is a lane the sweep's budget reached at one depth only: a measurement,
-    not a slope.</p>
+    length, and generation speed vs context already used (log tok/s). These are
+    the points the intervals above are drawn from. Each lane keeps the color it
+    has above. A hollow mark is a lane the sweep's budget
+    reached at one depth only: a measurement, not a slope.</p>
   <div class="curves">
     {% for sid in curves %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
   </div>
+</section>
+{% endif %}
+
+{% if memory %}
+<section>
+  <h2>Memory</h2>
+  <p class="fine">Two things, for the same selection. Left: what the allocator
+    reserved at each context size it was measured at. These are the allocator's own
+    totals, so they are exact — there is no spread to show. The dashed line is the
+    weights floor, which does not move with context; the gap up to the solid line is
+    what the context costs, KV cache plus compute buffers. Two lanes that reserved
+    the same amount draw one line over the other — the reservation follows the model
+    and the context size more closely than the device. Right: what the process
+    actually held while the job ran. The bar is peak resident memory, the dot above
+    it is the device-local pool on the lanes where the platform reports one per
+    process — a DRM-backed GPU holds that next to its host memory, so both marks are
+    real — and the thin dashed marker is the allocator total from the left chart, at
+    the deepest context it measured, as a reference. On unified-memory lanes there is
+    one pool and the bar already contains all of it; a lane whose per-process device
+    memory was not measured says so rather than showing zero.</p>
+  <div class="curves">
+    {% for sid in memory %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if threads %}
+<section>
+  <h2>Thread width</h2>
+  <p class="fine">CPU lanes only — a GPU lane's thread pool serves leftover host-side
+    work and says nothing about the device. Each phase was measured at the width the
+    lane runs and at halves of it, and each is drawn in its own unit: milliseconds for
+    one fixed prompt chunk from an empty cache, tok/s for one fixed generation burst at
+    an already-filled context. Those work units are small and are not the ones the
+    charts above use, so read ratios between widths within a chart — never a number
+    here against the generation rates in Results. The line is the fit the harness took
+    over the measured widths, drawn no further than them; the hollow ring is the width
+    the lane actually runs, which is the width every other number on this page comes
+    from. The dashed lines are the two fitted limits: for the prompt, the part of a
+    chunk that no width removes; for generation, the rate an unbounded width would
+    approach. The two phases behave differently on purpose. Prompt reading keeps
+    dividing its work, so it keeps rewarding cores; generation saturates a shared
+    memory path and stops paying — the dashed vertical rule is where the fit reaches
+    90% of its ceiling, and that width is what a reduced-power operating mode would
+    pick.</p>
+  <div class="curves">
+    {% for sid in threads %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
+  </div>
+  {% if thread_scalars %}
+  <div class="scroll-x">
+  <table>
+    <thead><tr><th>lane</th><th>model</th><th>width run</th>
+      <th>90% of generation peak</th><th>fitted ceiling</th>
+      <th>prompt floor, share of a 1-thread chunk</th>
+      <th>fit r² (prompt / generation)</th><th>notes</th></tr></thead>
+    <tbody>
+    {% for t in thread_scalars %}
+      <tr><td>{{ t.lane }}</td><td>{{ t.model }}</td><td>{{ t.width }}</td>
+        <td>{{ t.p90 }}</td><td>{{ t.ceiling }}</td><td>{{ t.floor }}</td>
+        <td>{{ t.r2 }}</td><td>{{ t.note }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -89,6 +237,7 @@
   <div class="panel" id="p-{{ t.id }}" role="tabpanel"{% if not loop.first %} hidden{% endif %}>
     <p class="fine">{{ t.about }}</p>
     {% if t.id == 'machines' %}
+    <div class="scroll-x">
     <table>
       <thead><tr><th>machine</th><th>CPU</th><th>GPU</th><th>RAM</th></tr></thead>
       <tbody>
@@ -97,7 +246,9 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
     {% elif t.id == 'ceilings' %}
+    <div class="scroll-x">
     <table>
       <thead><tr><th>lane</th><th>GEMM TFLOP/s</th><th>d2d GB/s</th></tr></thead>
       <tbody>
@@ -106,7 +257,9 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
     {% elif t.id == 'unusable' %}
+    <div class="scroll-x">
     <table>
       <thead><tr><th>lane</th><th>machine</th><th>model</th><th>quant</th><th>status</th></tr></thead>
       <tbody>
@@ -115,6 +268,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
     {% elif t.id == 'samples' %}
     {% for c in completions %}
     <p class="fine">{{ c.who }}</p>
@@ -136,6 +290,10 @@
 <script type="application/json" data-island="{{ sid }}">{{ spec | tojson }}</script>
 {% endfor %}
 <script type="application/json" id="lane-dark-map">{{ lane_dark_map | tojson }}</script>
+{% if tasks %}
+<script type="application/json" id="task-pack">{{ task_pack | tojson }}</script>
+<script>{{ tasks_js | safe }}</script>
+{% endif %}
 <script>{{ vega_js | safe }}</script>
 <script>{{ report_js | safe }}</script>
 </body>

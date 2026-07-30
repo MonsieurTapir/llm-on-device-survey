@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from bench_analysis import load_memory, load_probes, load_results, load_sweeps
+from bench_analysis import (
+    load_memory,
+    load_probes,
+    load_results,
+    load_sweeps,
+    load_thread_scaling,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -18,7 +24,7 @@ def test_merges_machines_by_directory():
 def test_one_row_per_run_with_job_status():
     df = load_results(FIXTURES)
     counts = df["status"].value_counts().to_dict()
-    assert counts["ok"] == 2  # one scored job per machine
+    assert counts["ok"] == 3  # m1-max scored both its lanes, 3090-box one
     assert counts["too_slow"] == 1  # 3090-box gemma4-E4B
     assert counts["errored"] == 1  # 3090-box gemma4-E2B
     assert counts["unhealthy"] == 1  # m1-max qwen3-4B failed its brain-check
@@ -51,6 +57,10 @@ def test_memory_curve_loads_long_with_pooled_buffers():
     assert list(box.weights_mb) == [600.0] * 3  # 500 MB device + 100 MB host, pooled
     assert list(box.kv_mb) == [37.5, 150.0, 600.0]  # grows with context
     assert list(box.compute_mb) == [50.0] * 3
+    # the lane's thread widths ride along, so these rows label their lane the same
+    # way the results and sweep frames do
+    assert list(box.threads_batch) == [16] * 3
+    assert list(box.threads_decode) == [16] * 3
     # runs without the curve contribute no rows — absent, not invented
     assert mem[mem.machine == "m1-max"].empty
 
@@ -75,7 +85,8 @@ def test_sweep_chunks_load_long_with_cumulative_ttft():
         running += ms
         expected.append(round(running, 2))
     assert list(pre.ttft_ms) == expected
-    dec = sweeps[(sweeps.machine == "m1-max") & (sweeps.kind == "decode")]
+    dec = sweeps[(sweeps.machine == "m1-max") & (sweeps.kind == "decode")
+                 & (sweeps.provider == "mtl")]
     assert list(dec.kv_fill) == [0, 2048] and list(dec.tps_p50) == [80.0, 75.0]
 
 
@@ -107,6 +118,48 @@ def test_partial_sweep_points_survive_bad_status():
     sweeps = load_sweeps(FIXTURES)
     partial = sweeps[sweeps.sweep_status == "too_slow"]
     assert len(partial) == 1 and partial.iloc[0]["tokens"] == 512
+
+
+def test_thread_ladder_loads_one_row_per_phase_and_width():
+    """The ladder is a CPU-lane measurement: each phase walks the lane's own width and
+    its halves, on its own small work unit. Prefill is timed from an empty cache, so it
+    has no fill; decode is timed at a fill the pass already primed, so it does."""
+    thr = load_thread_scaling(FIXTURES)
+    assert set(thr.provider) == {"cpu:0"}  # a GPU lane measures no ladder
+    assert set(thr.machine) == {"m1-max"}
+    for phase, tokens in (("prefill", 128), ("decode", 16)):
+        g = thr[thr.phase == phase]
+        assert sorted(g.threads) == [2, 4, 8]  # the width the lane runs, and halves
+        assert set(g.tokens) == {tokens}
+
+    pre = thr[thr.phase == "prefill"].sort_values("threads", ascending=False)
+    assert pre.kv_fill.isna().all()  # measured from an empty cache
+    assert list(pre.ms) == [212.4, 378.6, 719.5]  # narrower is slower
+    dec = thr[thr.phase == "decode"].sort_values("threads", ascending=False)
+    assert set(dec.kv_fill) == {2048}
+    assert list(dec.tps) == [22.1, 20.4, 15.2]
+    assert dec.ms.isna().all()  # a decode point is a rate, not a duration
+    # the lane's widths ride along, so these rows label their lane like every frame
+    assert set(thr.threads_batch) == {8} and set(thr.threads_decode) == {8}
+
+
+def test_thread_fits_ride_along_with_the_width_they_size():
+    """The results frame carries the two fits as parameters, plus the one derived
+    number a power-management caller acts on: the width that reaches 90% of peak
+    decode, which is the saturating fit inverted at a tenth."""
+    df = load_results(FIXTURES)
+    cpu = df[(df.machine == "m1-max") & (df.provider == "cpu:0")].iloc[0]
+    assert cpu["thr_prefill_floor_ms"] == 41.95  # what no width removes
+    assert cpu["thr_prefill_scaled_ms"] == 1353.886  # what threads divide
+    assert cpu["thr_prefill_floor_pct"] == 3.01  # so prefill keeps paying for cores
+    assert cpu["thr_decode_rate_max_tps"] == 22.439
+    assert cpu["thr_decode_threads_p90"] == round(
+        cpu["thr_decode_threads_scale"] * math.log(10), 2)
+    assert cpu["thr_decode_threads_p90"] < cpu["threads_decode"]  # saturates early
+
+    mtl = df[(df.machine == "m1-max") & (df.provider == "mtl")].iloc[0]
+    assert math.isnan(mtl["thr_prefill_floor_ms"])  # absent, not zero
+    assert math.isnan(mtl["thr_decode_threads_p90"])
 
 
 def test_probes_load_with_throughputs():
@@ -155,7 +208,8 @@ def test_schema_version_mismatch_is_loud(tmp_path):
                     "machine": {"os": "linux", "cpu": "x", "gpus": []},
                     "iters": 1, "spawns": 1, "runs": []})
     )
-    for loader in (load_results, load_sweeps, load_probes, load_memory):
+    for loader in (load_results, load_sweeps, load_probes, load_memory,
+                   load_thread_scaling):
         with pytest.raises(ValueError, match="schema_version"):
             loader(tmp_path)
 
@@ -165,3 +219,4 @@ def test_empty_dir_returns_empty_frame(tmp_path):
     assert load_sweeps(tmp_path).empty
     assert load_probes(tmp_path).empty
     assert load_memory(tmp_path).empty
+    assert load_thread_scaling(tmp_path).empty
