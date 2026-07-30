@@ -40,6 +40,10 @@
 #include "nlohmann/json.hpp"
 #include "CLI11.hpp"
 
+#if defined(__APPLE__) && defined(__MACH__)
+#include <sys/sysctl.h> // hw.physicalcpu — the whole chip, both clusters
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -1081,11 +1085,17 @@ constexpr std::array<int, 3> kMemoryContexts{512, 2048, 8192};
 // shallow fill there is almost no KV to attend over, the per-token work is
 // nearly all weight streaming, and the width scaling flattens into noise.
 //
-// The ladder walks *down* from the lane's own default. On linux and windows that
-// default is already every physical core and the only way up is SMT, which
-// measurably costs both phases. macOS is the one platform with real headroom
-// above it (the default takes only the top performance cluster); reaching it
-// needs hw.physicalcpu rather than this ladder, and is left out.
+// The ladder walks *down*, and its top is a fact about the hardware rather than a
+// per-OS policy about which cores to use by default. `resolve_threads` takes
+// llama.cpp's own default, which asks for `hw.perflevel0.physicalcpu` on Apple —
+// the top performance cluster only, six of eighteen cores on an M5 Pro. A ladder
+// starting there measures a third of that machine while its axis says "threads",
+// and sits beside lanes whose default is the whole part. So it starts at every
+// physical core and walks down *through* the lane's own default, which stays on
+// the ladder because it is the width every other number on the page comes from.
+//
+// Nothing is claimed above the top of the ladder: SMT is not walked, and no curve
+// is fitted past the widest width run.
 constexpr int kThreadChunk        = 128; // prefill work unit, from an empty cache
 constexpr int kThreadDecodeTokens = 16;  // decode burst length
 // Preferred fill for the decode half — the job's own context scale, and reached
@@ -1102,15 +1112,32 @@ int           preferred_thread_fill(int depth) {
     }
     return chosen;
 }
-// Highest width first so the anchor point always lands and the slowest, least
-// informative width is the one a tight budget drops.
-std::vector<int> thread_ladder(int width) {
+// Every physical core the chip has, both clusters. `common_cpu_get_num_physical_cores`
+// already means that on linux and windows; on Apple it asks for the performance
+// cluster first, so ask the wider question there and fall back to its answer.
+int all_physical_cores() {
+#if defined(__APPLE__) && defined(__MACH__)
+    int32_t cores = 0;
+    size_t  len   = sizeof(cores);
+    if (sysctlbyname("hw.physicalcpu", &cores, &len, nullptr, 0) == 0 && cores > 0)
+        return static_cast<int>(cores);
+#endif
+    return common_cpu_get_num_physical_cores();
+}
+
+// Widest first, so the anchor point always lands and the slowest, least informative
+// width is the one a tight budget drops. `ceiling` joins the ladder only when the
+// hardware has cores the lane's default leaves unused — elsewhere it *is* the
+// default and would be a duplicate.
+std::vector<int> thread_ladder(int width, int ceiling) {
     std::vector<int> ladder;
-    for (const int divisor : {1, 2, 4}) {
-        const int candidate = std::max(1, width / divisor);
+    const auto       add = [&](int candidate) {
+        candidate = std::max(1, candidate);
         if (std::find(ladder.begin(), ladder.end(), candidate) == ladder.end())
             ladder.push_back(candidate);
-    }
+    };
+    if (ceiling > width) add(ceiling);
+    for (const int divisor : {1, 2, 4}) add(width / divisor);
     return ladder;
 }
 constexpr int64_t kThreadLadderBudgetNs = 20'000'000'000;
@@ -1190,7 +1217,7 @@ int cmd_sweep(const Arguments & args) {
             // The decode half of the thread ladder, taken here because this fill
             // is already primed and already deep enough to show the scaling.
             if (device.is_cpu && fill == ladder_fill) {
-                for (const int width : thread_ladder(threads.decode)) {
+                for (const int width : thread_ladder(threads.decode, all_physical_cores())) {
                     session.set_threads({width, threads.batch});
                     if (!session.trim_cache(fill)) break; // the burst grew the cache
                     thread_decode.push_back(
@@ -1211,7 +1238,7 @@ int cmd_sweep(const Arguments & args) {
     // ops, so their width says nothing about the device.
     if (healthy && device.is_cpu) {
         const int64_t ladder_start = monotonic_ns();
-        for (const int width : thread_ladder(threads.batch)) {
+        for (const int width : thread_ladder(threads.batch, all_physical_cores())) {
             if (!thread_prefill.empty() && monotonic_ns() - ladder_start >= kThreadLadderBudgetNs) {
                 std::cerr << "llamacpp: thread ladder past budget — stopped before " << width
                           << " batch threads\n";
