@@ -14,7 +14,7 @@ every check fails with a reason a human can act on:
 - the raw trace's `llama_cpp_commit` is compared to the backend's pinned
   commit (a mismatch warns: it flags a submission from an unknown build).
 
-Nothing lands unless everything passes; `--force` only overwrites an existing
+Nothing lands unless everything passes; `--force` only replaces an existing
 submission of the same name, it never bypasses a check.
 """
 
@@ -24,6 +24,7 @@ import argparse
 import gzip
 import json
 import re
+import shutil
 import tarfile
 from collections import Counter
 from pathlib import Path
@@ -163,9 +164,13 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 f"differs from the pinned {pin[:12]!r} — check it came from a known release")
 
     dest: Path = args.published_dir / name
-    if dest.exists() and not args.force:
-        raise SystemExit(f"{dest} already exists — pass --force to overwrite")
-    dest.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        if not args.force:
+            raise SystemExit(f"{dest} already exists — pass --force to overwrite")
+        # Replace wholesale: a re-run whose bundle dropped a backend must not
+        # leave that backend's files behind to be read as current results.
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
     for filename, blob in blobs.items():
         (dest / filename).write_bytes(blob)
 

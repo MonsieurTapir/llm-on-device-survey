@@ -66,6 +66,18 @@ def test_ingest_refuses_to_overwrite_without_force(tmp_path):
     _ingest(tarball, published, force=True)
 
 
+def test_force_replaces_the_submission_wholesale(tmp_path):
+    """A re-run of a bundle that dropped a backend leaves nothing of the old one."""
+    tarball = _bundle(_local_run(tmp_path), tmp_path, "test-box")
+    published = tmp_path / "published"
+    _ingest(tarball, published)
+    stale = published / "test-box" / "onnx-results.json"
+    stale.write_text("{}")
+
+    _ingest(tarball, published, force=True)
+    assert not stale.exists()
+
+
 def test_submission_name_drops_vendor_noise():
     assert submission_name({"cpu": "AMD Ryzen 9 9950X 16-Core Processor",
                             "gpus": ["NVIDIA GeForce RTX 5080"]}) == "ryzen-9-9950x-rtx-5080"
