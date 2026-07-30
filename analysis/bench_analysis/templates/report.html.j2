@@ -64,7 +64,9 @@
 <section>
   <h2>Cost curves</h2>
   <p class="fine">The same selection, over depth: prompt-reading time vs prompt
-    length, and generation speed vs context already used (log–log).</p>
+    length, and generation speed vs context already used (log tok/s). A hollow
+    mark is a lane the sweep's budget reached at one depth only: a measurement,
+    not a slope.</p>
   <div class="curves">
     {% for sid in curves %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
   </div>

@@ -337,23 +337,41 @@ def _grid_spec(rows: list[dict], controls: list[dict]) -> dict:
     }
 
 
+def _single_depth(df: pd.DataFrame) -> pd.Series:
+    """Which rows belong to a (lane, model) the sweep only reached once. Its budget
+    stops at the first depth on a slow lane, so that lane has a measurement but no
+    slope — one point drawn as a line looks like a broken chart, so it is drawn as
+    a point and said out loud."""
+    return df.groupby(["lane", "model"]).lane.transform("size") < 2
+
+
 def _curve_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
-                x: str, y: str, x_title: str, y_title: str, log: bool = False) -> dict:
-    scale = {"type": "log"} if log else {}
+                x: str, y: str, x_title: str, y_title: str,
+                log_y: bool = False) -> dict:
+    """A curve per lane, plus the lanes that have one depth instead of a curve —
+    hollow marks, so a single measurement never masquerades as a trend."""
+    encoding = {
+        "x": {"field": x, "type": "quantitative", "title": x_title},
+        "y": {"field": y, "type": "quantitative", "title": y_title,
+              "scale": {"type": "log"} if log_y else {}},
+        "color": {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
+                  "legend": {"orient": "bottom", "columns": 2, "title": None}},
+        "tooltip": [{"field": "lane"}, {"field": x}, {"field": y}],
+    }
     return {
         "$schema": VL_SCHEMA,
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
         "width": 400, "height": 220,
-        "mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
-        "encoding": {
-            "x": {"field": x, "type": "quantitative", "title": x_title, "scale": scale},
-            "y": {"field": y, "type": "quantitative", "title": y_title, "scale": scale},
-            "color": {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
-                      "legend": {"orient": "bottom", "columns": 2, "title": None}},
-            "tooltip": [{"field": "lane"}, {"field": x}, {"field": y}],
-        },
+        "layer": [
+            {"transform": [{"filter": "!datum.single"}],
+             "mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
+             "encoding": encoding},
+            {"transform": [{"filter": "datum.single"}],
+             "mark": {"type": "point", "size": 70, "filled": False, "strokeWidth": 2},
+             "encoding": encoding},
+        ],
         "config": {"view": {"stroke": None}},
     }
 
@@ -386,19 +404,20 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         specs["grid"] = _grid_spec(grid_rows, controls)
 
         sweeps = _with_lanes(load_sweeps(published))
-        pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.notna()]
+        pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.notna()].copy()
         dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)].copy()
-        keep = ["lane", "dev_class", "model", "quant", "backend"]
+        keep = ["lane", "dev_class", "model", "quant", "backend", "single"]
         if len(pre):
+            pre["single"] = _single_depth(pre)
             specs["curve-ttft"] = _curve_spec(
                 pre[[*keep, "tokens", "ttft_ms"]].to_dict("records"), lanes, controls,
                 x="tokens", y="ttft_ms",
                 x_title="prompt tokens", y_title="time to first token (ms)")
         if len(dec):
-            dec["kv_fill"] = dec.kv_fill.clip(lower=64)
+            dec["single"] = _single_depth(dec)
             specs["curve-decode"] = _curve_spec(
                 dec[[*keep, "kv_fill", "tps_p50"]].to_dict("records"), lanes, controls,
-                x="kv_fill", y="tps_p50", log=True,
+                x="kv_fill", y="tps_p50", log_y=True,
                 x_title="context already used (tokens)", y_title="tok/s")
         context["curves"] = [sid for sid in ("curve-ttft", "curve-decode") if sid in specs]
 
