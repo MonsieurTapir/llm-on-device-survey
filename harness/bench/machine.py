@@ -43,7 +43,8 @@ def _cpu_label() -> str:
             return subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
                 capture_output=True,
-                text=True, errors="replace",
+                text=True,
+                errors="replace",
                 check=True,
             ).stdout.strip()
         except Exception:  # noqa: BLE001
@@ -76,8 +77,13 @@ def _dimms_linux() -> list[dict] | None:
     speed, rank, and a channel key parsed from the locator. None when dmidecode
     is unavailable or needs root (run `sudo bench run …` or accept the nulls)."""
     try:
-        out = subprocess.run(["dmidecode", "-t", "memory"], capture_output=True,
-                             text=True, errors="replace", timeout=10)
+        out = subprocess.run(
+            ["dmidecode", "-t", "memory"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=10,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     if out.returncode != 0 or "Memory Device" not in out.stdout:
@@ -103,16 +109,20 @@ def _parse_dimms(text: str) -> list[dict] | None:
         locator = fields.get("Locator", "") + "/" + fields.get("Bank Locator", "")
         # A channel is per memory controller: "Controller0-ChannelA" and
         # "Controller1-ChannelA" are two channels, not one.
-        channel = re.search(r"(?i)(?:controller[ _-]?(\d+).*)?ch(?:annel)?[ _-]?([a-z0-9])",
-                            locator)
-        dimms.append({
-            "size_gb": size_gb,
-            "rated_mts": int(rated.group(1)) if rated else None,
-            "configured_mts": int(configured.group(1)) if configured else None,
-            "rank": int(rank) if rank.isdigit() else None,
-            "_channel": (f"{channel.group(1) or ''}/{channel.group(2).upper()}"
-                         if channel else locator),
-        })
+        channel = re.search(
+            r"(?i)(?:controller[ _-]?(\d+).*)?ch(?:annel)?[ _-]?([a-z0-9])", locator
+        )
+        dimms.append(
+            {
+                "size_gb": size_gb,
+                "rated_mts": int(rated.group(1)) if rated else None,
+                "configured_mts": int(configured.group(1)) if configured else None,
+                "rank": int(rank) if rank.isdigit() else None,
+                "_channel": (
+                    f"{channel.group(1) or ''}/{channel.group(2).upper()}" if channel else locator
+                ),
+            }
+        )
     return dimms or None
 
 
@@ -122,8 +132,14 @@ def _memory() -> dict:
     total_gb = round(psutil.virtual_memory().total / 2**30, 1)
     dimms = _dimms_linux() if platform.system() == "Linux" else None
     if not dimms:
-        return {"total_gb": total_gb, "channels": None, "configured_mts": None,
-                "rated_mts": None, "rank": None, "dimms": None}
+        return {
+            "total_gb": total_gb,
+            "channels": None,
+            "configured_mts": None,
+            "rated_mts": None,
+            "rank": None,
+            "dimms": None,
+        }
     configured = [d["configured_mts"] for d in dimms if d["configured_mts"]]
     rated = [d["rated_mts"] for d in dimms if d["rated_mts"]]
     ranks = [d["rank"] for d in dimms if d["rank"]]

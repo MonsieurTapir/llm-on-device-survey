@@ -169,8 +169,12 @@ def thread_prefill_fit(points: list[dict]) -> dict | None:
         return None
     scaled = sum((x - mx) * (y - my) for x, y in pts) / sxx
     floor = my - scaled * mx
-    return {"model": "amdahl", "floor_ms": round(floor, 3), "scaled_ms": round(scaled, 3),
-            **_quality([y for _, y in pts], [floor + scaled * x for x, _ in pts])}
+    return {
+        "model": "amdahl",
+        "floor_ms": round(floor, 3),
+        "scaled_ms": round(scaled, 3),
+        **_quality([y for _, y in pts], [floor + scaled * x for x, _ in pts]),
+    }
 
 
 def thread_decode_fit(points: list[dict]) -> dict | None:
@@ -213,9 +217,12 @@ def thread_decode_fit(points: list[dict]) -> dict | None:
         lo, hi = max(0.05, best[2] - step * 4), best[2] + step * 4
     _, rate_max, scale = best
     predicted = [rate_max * (1.0 - math.exp(-n / scale)) for n, _ in pts]
-    return {"model": "saturating", "rate_max_tps": round(rate_max, 3),
-            "threads_scale": round(scale, 4),
-            **_quality([y for _, y in pts], predicted)}
+    return {
+        "model": "saturating",
+        "rate_max_tps": round(rate_max, 3),
+        "threads_scale": round(scale, 4),
+        **_quality([y for _, y in pts], predicted),
+    }
 
 
 def ubatch_points(chunks: list[dict]) -> list[dict]:
@@ -248,14 +255,16 @@ def ubatch_points(chunks: list[dict]) -> list[dict]:
         depth = group[0]["context"]
         parts_ms = sum(g["ms"] for g in group)
         full_ms = fit["intercept_ms"] + fit["slope_ms_per_1k"] * depth / 1000
-        out.append({
-            "context": depth,
-            "width": group[0]["tokens"],
-            "n_parts": len(group),
-            "parts_ms": round(parts_ms, 2),
-            "full_ms_fitted": round(full_ms, 2),
-            "penalty_pct": round((parts_ms / full_ms - 1) * 100, 2) if full_ms > 0 else None,
-        })
+        out.append(
+            {
+                "context": depth,
+                "width": group[0]["tokens"],
+                "n_parts": len(group),
+                "parts_ms": round(parts_ms, 2),
+                "full_ms_fitted": round(full_ms, 2),
+                "penalty_pct": round((parts_ms / full_ms - 1) * 100, 2) if full_ms > 0 else None,
+            }
+        )
         group = []
     return out
 

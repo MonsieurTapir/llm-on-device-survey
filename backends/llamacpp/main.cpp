@@ -35,7 +35,7 @@
 #include "ggml.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
-#include "gguf.h"     // typed KV + tensor inventory for the geometry block
+#include "gguf.h" // typed KV + tensor inventory for the geometry block
 
 #include "nlohmann/json.hpp"
 #include "CLI11.hpp"
@@ -88,9 +88,7 @@ TimeSpan time_span(Body && body) {
     body();
     return {start_ns, monotonic_ns()};
 }
-json span_json(TimeSpan span) {
-    return {{"start_ns", span.start_ns}, {"end_ns", span.end_ns}};
-}
+json span_json(TimeSpan span) { return {{"start_ns", span.start_ns}, {"end_ns", span.end_ns}}; }
 json load_event(std::string_view phase, TimeSpan span) {
     return {{"type", phase}, {"start_ns", span.start_ns}, {"end_ns", span.end_ns}};
 }
@@ -196,8 +194,7 @@ Device select_device(std::string_view provider) {
     std::string available;
     for (const Lane & lane : device_lanes()) {
         if (lane.id == provider)
-            return {lane.handle,
-                    ggml_backend_dev_type(lane.handle) == GGML_BACKEND_DEVICE_TYPE_CPU,
+            return {lane.handle, ggml_backend_dev_type(lane.handle) == GGML_BACKEND_DEVICE_TYPE_CPU,
                     ggml_backend_dev_description(lane.handle)};
         available += (available.empty() ? "" : ", ") + lane.id;
     }
@@ -404,20 +401,22 @@ json tensors_json(gguf_context * gguf, bool & tied_head) {
     bool  has_output_weight = false;
 
     for (int64_t i = 0; i < gguf_get_n_tensors(gguf); ++i) {
-        const std::string   name  = gguf_get_tensor_name(gguf, i);
-        const size_t        bytes = gguf_get_tensor_size(gguf, i);
-        const enum ggml_type type = gguf_get_tensor_type(gguf, i);
-        const uint64_t params = bytes / ggml_type_size(type) * ggml_blck_size(type);
+        const std::string    name   = gguf_get_tensor_name(gguf, i);
+        const size_t         bytes  = gguf_get_tensor_size(gguf, i);
+        const enum ggml_type type   = gguf_get_tensor_type(gguf, i);
+        const uint64_t       params = bytes / ggml_type_size(type) * ggml_blck_size(type);
 
         Group * group = &body;
-        if (name.find("token_embd") != std::string::npos) group = &embedding;
-        else if (name == "output.weight" || name == "output_norm.weight") group = &head;
+        if (name.find("token_embd") != std::string::npos)
+            group = &embedding;
+        else if (name == "output.weight" || name == "output_norm.weight")
+            group = &head;
         if (name == "output.weight") has_output_weight = true;
 
         group->params += params;
         group->bytes += bytes;
     }
-    tied_head = !has_output_weight;
+    tied_head       = !has_output_weight;
     auto group_json = [](const Group & g) {
         return json{{"params", g.params}, {"bytes", g.bytes}};
     };
@@ -448,8 +447,9 @@ json geometry_json(const llama_model * model, llama_context * context,
     const int         layer_count = llama_model_n_layer(model);
     const int         window      = llama_model_n_swa(model);
 
-    int           shared_kv  = 0;
-    const int64_t shared_key = gguf_find_key(gguf.ctx, (arch + ".attention.shared_kv_layers").c_str());
+    int           shared_kv = 0;
+    const int64_t shared_key =
+        gguf_find_key(gguf.ctx, (arch + ".attention.shared_kv_layers").c_str());
     if (shared_key >= 0) shared_kv = static_cast<int>(gguf_get_val_u32(gguf.ctx, shared_key));
 
     bool tied_head = false;
@@ -533,9 +533,9 @@ class Session {
         llama_context_params context_params = llama_context_default_params();
         llama_context_ptr    context;
         for (const int context_length : context_lengths) {
-            context_params         = llama_context_default_params();
-            context_params.n_ctx   = context_length;
-            context_params.n_batch = context_length; // one llama_decode per prefill
+            context_params          = llama_context_default_params();
+            context_params.n_ctx    = context_length;
+            context_params.n_batch  = context_length;                // one llama_decode per prefill
             context_params.n_ubatch = std::min(512, context_length); // deployment default
             // Separate pools: batched prefill and single-token decode reach their
             // best counts at different widths, and llama.cpp keeps two threadpools
@@ -544,10 +544,10 @@ class Session {
             context_params.n_threads_batch = threads.batch;
             if (device.is_cpu) context_params.offload_kqv = false; // keep the KV cache off any GPU
 
-            load_phases.push_back(load_event("context-init", time_span([&] {
-                                                 context.reset(llama_init_from_model(
-                                                     model.get(), context_params));
-                                             })));
+            load_phases.push_back(
+                load_event("context-init", time_span([&] {
+                               context.reset(llama_init_from_model(model.get(), context_params));
+                           })));
             if (context) break;
             load_phases.erase(load_phases.end() - 1); // a failed init is not a load phase
             std::cerr << "llamacpp: context-init failed at n_ctx " << context_length
@@ -612,8 +612,8 @@ class Session {
                     const int width = std::min(wanted, n_ctx() - depth - 1);
                     if (width < 1) break;
                     std::vector<llama_token> tokens = synthetic_tokens(vocab_, width);
-                    if (llama_decode(context_.get(),
-                                     llama_batch_get_one(tokens.data(), width)) != 0)
+                    if (llama_decode(context_.get(), llama_batch_get_one(tokens.data(), width)) !=
+                        0)
                         throw BenchError("warmup prefill failed");
                     depth += width;
                 }
@@ -627,10 +627,9 @@ class Session {
     }
 
     json geometry() const {
-        return geometry_json(model_.get(), context_.get(), model_path_,
-                             static_cast<int>(context_params_.n_ctx),
-                             static_cast<int>(context_params_.n_batch),
-                             static_cast<int>(context_params_.n_ubatch));
+        return geometry_json(
+            model_.get(), context_.get(), model_path_, static_cast<int>(context_params_.n_ctx),
+            static_cast<int>(context_params_.n_batch), static_cast<int>(context_params_.n_ubatch));
     }
 
     // The allocator breakdown at another context size: free the current
@@ -647,8 +646,7 @@ class Session {
         params.n_ubatch             = std::min(512, context_length);
         context_.reset(llama_init_from_model(model_.get(), params));
         if (!context_)
-            throw BenchError("failed to reopen context at n_ctx " +
-                             std::to_string(context_length));
+            throw BenchError("failed to reopen context at n_ctx " + std::to_string(context_length));
         kv_cache_ = llama_get_memory(context_.get());
         return {{"n_ctx", context_length},
                 {"n_batch", context_length},
@@ -709,10 +707,10 @@ class Session {
     // silicon trades tail length for time, not precision, and the entry's
     // token_ns length is the count actually decoded. Returns the repeat entry.
     json decode_point(int fill, int count, int min_tokens, int64_t budget_ns) {
-        int  context_size    = fill;
+        int context_size = fill;
         auto [event, unused] =
             decode_tokens(count, context_size, /*capture_text=*/false, min_tokens, budget_ns);
-        (void) unused;
+        (void)unused;
         TimeSpan span{event["start_ns"], event["end_ns"]};
         return {{"token_ns", std::move(event["token_ns"])},
                 {"start_ns", span.start_ns},
@@ -750,9 +748,9 @@ class Session {
     // timing.
     json prefill(std::vector<llama_token> & tokens, int context_before) {
         const TimeSpan span = time_span([&] {
-            if (llama_decode(context_.get(), llama_batch_get_one(
-                                                 tokens.data(),
-                                                 static_cast<int32_t>(tokens.size()))) != 0)
+            if (llama_decode(
+                    context_.get(),
+                    llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()))) != 0)
                 throw BenchError("prefill llama_decode failed (context too small?)");
             llama_synchronize(context_.get());
         });
@@ -844,8 +842,8 @@ struct Arguments {
     // 0 = llama.cpp's own default for this OS (see resolve_threads). Overrides
     // exist to answer "does this lane want more/fewer threads" on demand; the
     // survey's published numbers are always the default.
-    int         threads       = 0;
-    int         threads_batch = 0;
+    int threads       = 0;
+    int threads_batch = 0;
 };
 struct Cli {
     CLI::App   app{"bench-llamacpp — llama.cpp backend"};
@@ -871,7 +869,10 @@ struct Cli {
         run_cmd->add_option("--model", args.model, "Resolved .gguf artifact path")->required();
         run_cmd->add_option("--quant", args.quant, "Quant label echoed into events (fp16|q8|q4|q2)")
             ->required();
-        run_cmd->add_option("--ep", args.provider, "Device lane to run, as listed by `providers` (e.g. vulkan:0)")->required();
+        run_cmd
+            ->add_option("--ep", args.provider,
+                         "Device lane to run, as listed by `providers` (e.g. vulkan:0)")
+            ->required();
         run_cmd->add_option("--task", args.task, "Resolved task JSON path")->required();
         run_cmd->add_option("--iters", args.iters, "Timed iterations after one load+warmup")
             ->capture_default_str();
@@ -886,9 +887,13 @@ struct Cli {
         sweep_cmd = app.add_subcommand(
             "sweep", "Measure prefill vs prompt length and decode vs KV fill (synthetic tokens)");
         sweep_cmd->add_option("--model", args.model, "Resolved .gguf artifact path")->required();
-        sweep_cmd->add_option("--quant", args.quant, "Quant label echoed into events (fp16|q8|q4|q2)")
+        sweep_cmd
+            ->add_option("--quant", args.quant, "Quant label echoed into events (fp16|q8|q4|q2)")
             ->required();
-        sweep_cmd->add_option("--ep", args.provider, "Device lane to run, as listed by `providers` (e.g. vulkan:0)")->required();
+        sweep_cmd
+            ->add_option("--ep", args.provider,
+                         "Device lane to run, as listed by `providers` (e.g. vulkan:0)")
+            ->required();
         sweep_cmd->add_option(
             "--gate", args.gate,
             "Health-gate task JSON, run through the chat path before anything synthetic; "
@@ -964,10 +969,10 @@ json event_header(const char * mode, const Arguments & args, const Device & devi
 
 // ---------------------------------------------------------------- run subcommand
 int cmd_run(const Arguments & args) {
-    const Task   task         = load_task(args.task);
-    const Device device       = select_device(args.provider);
-    const Threads threads      = resolve_threads(args.threads, args.threads_batch);
-    const json   anchor       = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
+    const Task    task    = load_task(args.task);
+    const Device  device  = select_device(args.provider);
+    const Threads threads = resolve_threads(args.threads, args.threads_batch);
+    const json    anchor  = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
 
     json    load_phases = json::array();
     Session session =
@@ -989,10 +994,10 @@ int cmd_run(const Arguments & args) {
         iterations.push_back(session.run_iteration(task, healthy));
     }
 
-    json out       = event_header("run", args, device, threads, anchor);
-    out["task"]    = task.name;
-    out["healthy"] = healthy;
-    out["load"]    = std::move(load_phases);
+    json out          = event_header("run", args, device, threads, anchor);
+    out["task"]       = task.name;
+    out["healthy"]    = healthy;
+    out["load"]       = std::move(load_phases);
     out["geometry"]   = session.geometry();
     out["iterations"] = std::move(iterations);
     write_json(args.out, out);
@@ -1018,8 +1023,8 @@ int cmd_run(const Arguments & args) {
 // runs on the already-loaded model before anything synthetic, so the health
 // verdict and the sweep share one model load. An unhealthy provider emits its
 // gate evidence and measures nothing.
-constexpr int                kSweepChunk   = 512; // == n_ubatch, the deployment micro-batch
-constexpr int                kSweepDepth   = 8192;
+constexpr int kSweepChunk = 512; // == n_ubatch, the deployment micro-batch
+constexpr int kSweepDepth = 8192;
 // Depths whose chunk is ingested as two half-width dispatches instead of one full
 // one. Same tokens, same depth reached, so the envelope and its cost are
 // unchanged — only the dispatch width differs, which is what n_ubatch selects.
@@ -1081,14 +1086,14 @@ constexpr std::array<int, 3> kMemoryContexts{512, 2048, 8192};
 // measurably costs both phases. macOS is the one platform with real headroom
 // above it (the default takes only the top performance cluster); reaching it
 // needs hw.physicalcpu rather than this ladder, and is left out.
-constexpr int kThreadChunk        = 128;  // prefill work unit, from an empty cache
-constexpr int kThreadDecodeTokens = 16;   // decode burst length
+constexpr int kThreadChunk        = 128; // prefill work unit, from an empty cache
+constexpr int kThreadDecodeTokens = 16;  // decode burst length
 // Preferred fill for the decode half — the job's own context scale, and reached
 // by every lane that finishes a sweep. A lane too slow to get there falls back to
 // the deepest fill it did visit rather than dropping the measurement; kv_fill
 // travels with each point, so a shallower one is visible instead of implied.
 constexpr int kThreadDecodeFill = 2048; // one of kDecodeFills
-int preferred_thread_fill(int depth) {
+int           preferred_thread_fill(int depth) {
     int chosen = -1;
     for (const int fill : kDecodeFills) { // descending
         if (fill >= depth) continue;      // never reached
@@ -1111,13 +1116,13 @@ std::vector<int> thread_ladder(int width) {
 constexpr int64_t kThreadLadderBudgetNs = 20'000'000'000;
 
 int cmd_sweep(const Arguments & args) {
-    const Device device       = select_device(args.provider);
-    const Threads threads     = resolve_threads(args.threads, args.threads_batch);
-    const json   anchor       = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
+    const Device  device  = select_device(args.provider);
+    const Threads threads = resolve_threads(args.threads, args.threads_batch);
+    const json    anchor  = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
 
     json    load_phases = json::array();
-    Session session = Session::open(args.model, device, {kSweepContext, kSweepContextFallback},
-                                    threads, load_phases);
+    Session session     = Session::open(args.model, device, {kSweepContext, kSweepContextFallback},
+                                        threads, load_phases);
     session.warmup(load_phases);
 
     // The gate: one iteration of the brain-check through the chat path. Not
@@ -1125,9 +1130,9 @@ int cmd_sweep(const Arguments & args) {
     bool healthy = true;
     json gate;
     if (!args.gate.empty()) {
-        const Task gate_task  = load_task(args.gate);
-        json       iteration  = session.run_iteration(gate_task, healthy);
-        gate                  = {{"task", gate_task.name}, {"events", std::move(iteration["events"])}};
+        const Task gate_task = load_task(args.gate);
+        json       iteration = session.run_iteration(gate_task, healthy);
+        gate = {{"task", gate_task.name}, {"events", std::move(iteration["events"])}};
         session.trim_cache(0); // the instrumented pass expects an empty cache
         if (!healthy) std::cerr << "llamacpp: gate failed — skipping the sweep\n";
     }
@@ -1153,8 +1158,7 @@ int cmd_sweep(const Arguments & args) {
                           << " tokens\n";
                 break;
             }
-            if (std::find(kSubdivideAt.begin(), kSubdivideAt.end(), depth) !=
-                kSubdivideAt.end()) {
+            if (std::find(kSubdivideAt.begin(), kSubdivideAt.end(), depth) != kSubdivideAt.end()) {
                 prefill_chunks.push_back(session.append_chunk(depth, kSweepChunk / 2));
                 prefill_chunks.push_back(
                     session.append_chunk(depth + kSweepChunk / 2, kSweepChunk / 2));
@@ -1176,9 +1180,10 @@ int cmd_sweep(const Arguments & args) {
         if (depth + kDecodeTokens <= session.n_ctx()) measure_fill(depth);
         const int ladder_fill = preferred_thread_fill(depth);
         for (const int fill : kDecodeFills) {
-            if (fill >= depth) continue; // beyond (or equal to) what the pass reached
+            if (fill >= depth) continue;     // beyond (or equal to) what the pass reached
             if (!session.trim_cache(fill)) { // hybrid/recurrent: only 0 is reachable
-                std::cerr << "llamacpp: cache refuses partial trim — skipping fill " << fill << "\n";
+                std::cerr << "llamacpp: cache refuses partial trim — skipping fill " << fill
+                          << "\n";
                 continue;
             }
             measure_fill(fill);
@@ -1191,9 +1196,9 @@ int cmd_sweep(const Arguments & args) {
                     thread_decode.push_back(
                         {{"threads", width},
                          {"kv_fill", fill},
-                         {"decode", session.decode_point(fill, kThreadDecodeTokens,
-                                                         kThreadDecodeTokens,
-                                                         kDecodePointBudgetNs)}});
+                         {"decode",
+                          session.decode_point(fill, kThreadDecodeTokens, kThreadDecodeTokens,
+                                               kDecodePointBudgetNs)}});
                 }
                 session.set_threads(threads);
                 if (!session.trim_cache(fill)) break;
@@ -1207,8 +1212,7 @@ int cmd_sweep(const Arguments & args) {
     if (healthy && device.is_cpu) {
         const int64_t ladder_start = monotonic_ns();
         for (const int width : thread_ladder(threads.batch)) {
-            if (!thread_prefill.empty() &&
-                monotonic_ns() - ladder_start >= kThreadLadderBudgetNs) {
+            if (!thread_prefill.empty() && monotonic_ns() - ladder_start >= kThreadLadderBudgetNs) {
                 std::cerr << "llamacpp: thread ladder past budget — stopped before " << width
                           << " batch threads\n";
                 break;
@@ -1280,14 +1284,14 @@ constexpr size_t                            kCopyBytes = 256ull << 20;
 
 json gemm_point(ggml_backend_t backend, ggml_backend_buffer_type_t buffer_type, int m, int n,
                 int k) {
-    GgmlCtxGuard guard{ggml_init({ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr,
-                                  /*no_alloc=*/true})};
+    GgmlCtxGuard   guard{ggml_init({ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr,
+                                    /*no_alloc=*/true})};
     ggml_context * ctx = guard.ctx;
     if (!ctx) throw BenchError("probe: ggml_init failed");
 
-    ggml_tensor * a = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, k, m);
-    ggml_tensor * b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, k, n);
-    ggml_tensor * c = ggml_mul_mat(ctx, a, b);
+    ggml_tensor * a     = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, k, m);
+    ggml_tensor * b     = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, k, n);
+    ggml_tensor * c     = ggml_mul_mat(ctx, a, b);
     ggml_cgraph * graph = ggml_new_graph(ctx);
     ggml_build_forward_expand(graph, c);
 
@@ -1318,25 +1322,24 @@ json gemm_point(ggml_backend_t backend, ggml_backend_buffer_type_t buffer_type, 
     };
     compute(); // warm
 
-    return {{"m", m},
-            {"n", n},
-            {"k", k},
-            {"dtype", "f16"},
-            {"repeats", adaptive_repeats([&] {
-                 const TimeSpan span = time_span(compute);
-                 return std::pair<double, json>{span.seconds(), span_json(span)};
-             })}};
+    return {{"m", m}, {"n", n}, {"k", k}, {"dtype", "f16"}, {"repeats", adaptive_repeats([&] {
+                                                                 const TimeSpan span =
+                                                                     time_span(compute);
+                                                                 return std::pair<double, json>{
+                                                                     span.seconds(),
+                                                                     span_json(span)};
+                                                             })}};
 }
 
 json copy_points(ggml_backend_t backend, ggml_backend_buffer_type_t buffer_type) {
-    const size_t elements = kCopyBytes / sizeof(float);
-    GgmlCtxGuard guard{ggml_init({ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr,
-                                  /*no_alloc=*/true})};
+    const size_t   elements = kCopyBytes / sizeof(float);
+    GgmlCtxGuard   guard{ggml_init({ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr,
+                                    /*no_alloc=*/true})};
     ggml_context * ctx = guard.ctx;
     if (!ctx) throw BenchError("probe: ggml_init failed");
 
-    ggml_tensor * x = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, static_cast<int64_t>(elements));
-    ggml_tensor * y = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, static_cast<int64_t>(elements));
+    ggml_tensor * x      = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, static_cast<int64_t>(elements));
+    ggml_tensor * y      = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, static_cast<int64_t>(elements));
     ggml_tensor * copied = ggml_cpy(ctx, x, y); // device-side copy kernel
     ggml_cgraph * graph  = ggml_new_graph(ctx);
     ggml_build_forward_expand(graph, copied);
@@ -1391,7 +1394,7 @@ int cmd_probe(const Arguments & args) {
     if (device.is_cpu) {
         // Resolved at runtime: in a GGML_BACKEND_DL build the cpu backend is a
         // dlopen'd module, so its symbols can't be linked directly.
-        auto * reg = ggml_backend_dev_backend_reg(device.handle);
+        auto * reg           = ggml_backend_dev_backend_reg(device.handle);
         auto   set_n_threads = reinterpret_cast<void (*)(ggml_backend_t, int)>(
             ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads"));
         // The GEMM shapes here are batched work, so they run the batch pool —

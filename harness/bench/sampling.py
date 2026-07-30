@@ -88,7 +88,8 @@ def _apple_gpu_names() -> list[str]:
         out = subprocess.run(
             ["system_profiler", "SPDisplaysDataType", "-json"],
             capture_output=True,
-            text=True, errors="replace",
+            text=True,
+            errors="replace",
             check=True,
             timeout=5,
         )
@@ -100,7 +101,8 @@ def _apple_gpu_names() -> list[str]:
         chip = subprocess.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
             capture_output=True,
-            text=True, errors="replace",
+            text=True,
+            errors="replace",
             check=True,
         ).stdout.strip()
         if chip.startswith("Apple"):

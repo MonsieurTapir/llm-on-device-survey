@@ -155,13 +155,22 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         if not filename.endswith("-raw.json.gz"):
             continue
         versions = next(
-            (t["events"]["versions"] for cell in doc.get("cells") or []
-             for t in [(cell.get("sweep") or {}).get("trace"),
-                       *(cell.get("job") or {}).get("spawns", [])]
-             if t and t.get("events")), None)
+            (
+                t["events"]["versions"]
+                for cell in doc.get("cells") or []
+                for t in [
+                    (cell.get("sweep") or {}).get("trace"),
+                    *(cell.get("job") or {}).get("spawns", []),
+                ]
+                if t and t.get("events")
+            ),
+            None,
+        )
         if pin and versions and not pin.startswith(versions.get("llama_cpp_commit", "")):
-            log(f"⚠️  {filename}: llama_cpp_commit {versions.get('llama_cpp_commit')!r} "
-                f"differs from the pinned {pin[:12]!r} — check it came from a known release")
+            log(
+                f"⚠️  {filename}: llama_cpp_commit {versions.get('llama_cpp_commit')!r} "
+                f"differs from the pinned {pin[:12]!r} — check it came from a known release"
+            )
 
     dest: Path = args.published_dir / name
     if dest.exists():
@@ -181,8 +190,11 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     log(f"  machine: {machine['cpu']}{f' | {gpus}' if gpus else ''} | {machine['os']}")
     for doc in results_docs:
         statuses = Counter(
-            run["job"]["status"] if run["healthy"] else "unhealthy" for run in doc["runs"])
+            run["job"]["status"] if run["healthy"] else "unhealthy" for run in doc["runs"]
+        )
         lanes = sorted({run["provider"] for run in doc["runs"]})
-        log(f"  {doc['backend']}: {len(doc['runs'])} runs on {lanes}; "
-            + ", ".join(f"{status}×{n}" for status, n in sorted(statuses.items())))
+        log(
+            f"  {doc['backend']}: {len(doc['runs'])} runs on {lanes}; "
+            + ", ".join(f"{status}×{n}" for status, n in sorted(statuses.items()))
+        )
     log(f"  next: rebuild the report, review, commit as `submission({name}): …`")

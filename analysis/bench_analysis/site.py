@@ -65,18 +65,33 @@ INSTALL_BASH = (
     "llm-on-device-survey/main/run.sh | bash"
 )
 INSTALL_PS = (
-    "irm https://raw.githubusercontent.com/MonsieurTapir/"
-    "llm-on-device-survey/main/run.ps1 | iex"
+    "irm https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1 | iex"
 )
 
 # Lane identity colors — validated (light + dark) against the six checks;
 # assigned to lanes in fixed sorted order, never cycled past the overflow gray.
 # Every chart draws its lanes from this list through `_lane_scale`, so one lane
 # is one hue across the whole page.
-LANE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
-               "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
-LANE_COLORS_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500",
-                    "#d55181", "#008300", "#9085e9", "#e66767"]
+LANE_COLORS = [
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+    "#eda100",
+    "#e87ba4",
+    "#008300",
+    "#4a3aa7",
+    "#e34948",
+]
+LANE_COLORS_DARK = [
+    "#3987e5",
+    "#d95926",
+    "#199e70",
+    "#c98500",
+    "#d55181",
+    "#008300",
+    "#9085e9",
+    "#e66767",
+]
 LANE_OVERFLOW = "#898781"
 
 # Device classes: the band order in the grid, fastest kind of silicon first. The
@@ -150,28 +165,58 @@ LABEL_PX_PER_CHAR = 4.3
 # job (~1,550-token prompt, 256 tokens of reply, from empty), so its prediction
 # is read against the job's own measurement as a dot.
 TASKS = (
-    {"key": "chat", "label": "chat turn", "depth": 4096, "prompt": 120, "out": 200,
-     "measured": False, "mid_unit": "tps", "fields": ["depth"],
-     "columns": (("time to first word (s)", None),
-                 ("generation at this depth (tok/s)", None),
-                 ("whole turn (s)", "lower is better")),
-     "note": "The earlier turns already sit in the KV cache, so only the new "
-             "message is read before the first word."},
-    {"key": "summarize", "label": "read & summarize", "depth": 0, "prompt": 1550,
-     "out": 256, "measured": True, "mid_unit": "tps", "fields": [],
-     "columns": (("time to first token (s)", None),
-                 ("generation over the reply (tok/s)", None),
-                 ("total (s)", "lower is better")),
-     "note": "The whole prompt is read from empty before the first token. This is "
-             "the validation job's own shape: the dots are its measurements, so "
-             "the gap between bar and dot is this calculator's error."},
-    {"key": "extract", "label": "background extraction", "depth": 0, "prompt": 4096,
-     "out": 400, "measured": False, "mid_unit": "s", "fields": [],
-     "columns": (("reading the input (s)", None),
-                 ("writing the output (s)", None),
-                 ("done after (s)", "lower is better")),
-     "note": "Runs unattended, so only the end matters: done-after adds reading "
-             "the weights and allocating the context to the two phases beside it."},
+    {
+        "key": "chat",
+        "label": "chat turn",
+        "depth": 4096,
+        "prompt": 120,
+        "out": 200,
+        "measured": False,
+        "mid_unit": "tps",
+        "fields": ["depth"],
+        "columns": (
+            ("time to first word (s)", None),
+            ("generation at this depth (tok/s)", None),
+            ("whole turn (s)", "lower is better"),
+        ),
+        "note": "The earlier turns already sit in the KV cache, so only the new "
+        "message is read before the first word.",
+    },
+    {
+        "key": "summarize",
+        "label": "read & summarize",
+        "depth": 0,
+        "prompt": 1550,
+        "out": 256,
+        "measured": True,
+        "mid_unit": "tps",
+        "fields": [],
+        "columns": (
+            ("time to first token (s)", None),
+            ("generation over the reply (tok/s)", None),
+            ("total (s)", "lower is better"),
+        ),
+        "note": "The whole prompt is read from empty before the first token. This is "
+        "the validation job's own shape: the dots are its measurements, so "
+        "the gap between bar and dot is this calculator's error.",
+    },
+    {
+        "key": "extract",
+        "label": "background extraction",
+        "depth": 0,
+        "prompt": 4096,
+        "out": 400,
+        "measured": False,
+        "mid_unit": "s",
+        "fields": [],
+        "columns": (
+            ("reading the input (s)", None),
+            ("writing the output (s)", None),
+            ("done after (s)", "lower is better"),
+        ),
+        "note": "Runs unattended, so only the end matters: done-after adds reading "
+        "the weights and allocating the context to the two phases beside it.",
+    },
 )
 
 # The controls, in row order: signal name, the row field it filters, its label.
@@ -202,13 +247,14 @@ def _vega_js(cache: Path) -> str:
 _TRADEMARK = re.compile(r"\s*\((?:R|TM|C)\)|®|™", re.IGNORECASE)
 # A Vulkan/OpenGL driver appends its own identity in parens: "(RADV PHOENIX)".
 _DRIVER_TAG = re.compile(
-    r"\s*\((?:RADV|ANV|NVK|LLVM|MESA|SWIFTSHADER|LAVAPIPE|GFX)[^)]*\)", re.IGNORECASE)
-_VENDOR = re.compile(r"^(?:NVIDIA|AMD|Intel|Advanced Micro Devices,?(?: Inc\.?)?)\s+",
-                     re.IGNORECASE)
+    r"\s*\((?:RADV|ANV|NVK|LLVM|MESA|SWIFTSHADER|LAVAPIPE|GFX)[^)]*\)", re.IGNORECASE
+)
+_VENDOR = re.compile(
+    r"^(?:NVIDIA|AMD|Intel|Advanced Micro Devices,?(?: Inc\.?)?)\s+", re.IGNORECASE
+)
 # What a CPU brand string pads its model with — including the iGPU it mentions
 # ("Ryzen 7 255 w/ Radeon 780M Graphics"), which belongs to the GPU lane, not here.
-_CPU_TAIL = re.compile(r"\s*(?:\bw/\s.*|\d+-Core Processor|Processor|CPU @.*)$",
-                       re.IGNORECASE)
+_CPU_TAIL = re.compile(r"\s*(?:\bw/\s.*|\d+-Core Processor|Processor|CPU @.*)$", re.IGNORECASE)
 _GPU_TAIL = re.compile(r"\s+Graphics$", re.IGNORECASE)
 _GEFORCE = re.compile(r"\bGeForce\s+", re.IGNORECASE)
 
@@ -281,15 +327,20 @@ def _with_lanes(df: pd.DataFrame) -> pd.DataFrame:
     rows are never silently pooled."""
     df = df.copy()
     df["family"] = [_family(p) for p in df.provider]
-    df["dev_class"] = [_dev_class(d, c, f)
-                       for d, c, f in zip(df.device, df.cpu, df.family, strict=True)]
-    df["lane"] = [f"{_lane_chip(d, c, f)} · {f}{_width(f, b, k)}"
-                  for d, c, f, b, k in zip(df.device, df.cpu, df.family,
-                                           df.threads_batch, df.threads_decode, strict=True)]
+    df["dev_class"] = [
+        _dev_class(d, c, f) for d, c, f in zip(df.device, df.cpu, df.family, strict=True)
+    ]
+    df["lane"] = [
+        f"{_lane_chip(d, c, f)} · {f}{_width(f, b, k)}"
+        for d, c, f, b, k in zip(
+            df.device, df.cpu, df.family, df.threads_batch, df.threads_decode, strict=True
+        )
+    ]
     for qualifier in ("machine", "provider"):
         shared = df.groupby("lane")[qualifier].transform("nunique") > 1
-        df.loc[shared, "lane"] = [f"{lane} ({q})" for lane, q
-                                  in zip(df.lane[shared], df[qualifier][shared], strict=True)]
+        df.loc[shared, "lane"] = [
+            f"{lane} ({q})" for lane, q in zip(df.lane[shared], df[qualifier][shared], strict=True)
+        ]
     return df
 
 
@@ -297,8 +348,10 @@ def _lane_order(df: pd.DataFrame) -> list[str]:
     """Every lane, grouped by device class then named — the color domain, stable
     across models and filters (color follows the lane, never its rank)."""
     seen = df.drop_duplicates("lane")
-    return [r.lane for r in sorted(
-        seen.itertuples(), key=lambda r: (CLASSES.index(r.dev_class), r.lane))]
+    return [
+        r.lane
+        for r in sorted(seen.itertuples(), key=lambda r: (CLASSES.index(r.dev_class), r.lane))
+    ]
 
 
 # ------------------------------------------------------------------ chart specs
@@ -344,9 +397,12 @@ def _depth_ranges(sweeps: pd.DataFrame) -> dict[tuple[tuple, str], dict]:
         for cell, g in frame.sort_values("depth").groupby(key, sort=False):
             shallow, deep = g.iloc[0], g.iloc[-1]
             out[(cell, metric)] = {
-                "d_shallow": int(shallow.depth), "d_deep": int(deep.depth),
+                "d_shallow": int(shallow.depth),
+                "d_deep": int(deep.depth),
                 "v_shallow": round(float(shallow.rate), 2),
-                "v_deep": round(float(deep.rate), 2), "n_depths": len(g)}
+                "v_deep": round(float(deep.rate), 2),
+                "n_depths": len(g),
+            }
     return out
 
 
@@ -362,9 +418,19 @@ def _range_fields(span: dict | None, value: float | None, job_at: int | None) ->
     reserves room past, and where a status note goes. It is not where the value label
     goes — that rides the job's dot, at `value`, because the number it prints is the
     dot's. A cell with no sweep point keeps its job dot and draws no interval."""
-    fields = {"v_shallow": None, "v_deep": None, "d_shallow": None, "d_deep": None,
-              "n_depths": None, "job_at": job_at, "lo": None, "hi": None,
-              "label_x": value, "sweep_str": None, "job_str": None}
+    fields = {
+        "v_shallow": None,
+        "v_deep": None,
+        "d_shallow": None,
+        "d_deep": None,
+        "n_depths": None,
+        "job_at": job_at,
+        "lo": None,
+        "hi": None,
+        "label_x": value,
+        "sweep_str": None,
+        "job_str": None,
+    }
     if value is not None and job_at is not None:
         fields["job_str"] = f"{value:g} tok/s at the {_depth_str(job_at)}-token job"
     if span:
@@ -377,8 +443,9 @@ def _range_fields(span: dict | None, value: float | None, job_at: int | None) ->
         # degenerate "17–17 range" under a rule the job's 49 visibly stretches.
         shallow = f"{span['v_shallow']:g} at {_depth_str(span['d_shallow'])} tokens"
         deep = f"{span['v_deep']:g} at {_depth_str(span['d_deep'])}"
-        fields["sweep_str"] = (shallow if span["d_shallow"] == span["d_deep"]
-                               else f"{shallow} → {deep}")
+        fields["sweep_str"] = (
+            shallow if span["d_shallow"] == span["d_deep"] else f"{shallow} → {deep}"
+        )
     return fields
 
 
@@ -419,14 +486,20 @@ def _grid_rows(df: pd.DataFrame, ranges: dict[tuple[tuple, str], dict]) -> list[
         # Everything a row carries is drawn or filtered on: the lane is the axis, the
         # class is the band, and the other three are what the control row scopes by.
         base = {
-            "lane": r.lane, "dev_class": r.dev_class, "backend": r.backend,
-            "model": r.model, "quant": r.quant,
+            "lane": r.lane,
+            "dev_class": r.dev_class,
+            "backend": r.backend,
+            "model": r.model,
+            "quant": r.quant,
             "rank": rank.get((r.model, r.lane), len(rank)),
         }
         cell = (r.machine, r.backend, r.provider, r.model, r.quant)
         if r.status == "ok":
-            values = {"decode": r.decode_tps_p50, "prefill": r.prefill_tps_p50,
-                      "init": (r.model_load_ms_p50 + r.context_init_ms_p50) / 1e3}
+            values = {
+                "decode": r.decode_tps_p50,
+                "prefill": r.prefill_tps_p50,
+                "init": (r.model_load_ms_p50 + r.context_init_ms_p50) / 1e3,
+            }
             note = None
             depth = r.prefill_tps_p50 * r.ttft_ms_p50 / 1e3
             job_at = round(depth) if depth == depth else None  # NaN-safe
@@ -452,9 +525,10 @@ def _lane_scale(lanes: list[str], colors: list[str]) -> dict:
     `colors`, so a lane's bar and its curve are the same hue. Past the eighth lane
     the palette is out and the rest share `LANE_OVERFLOW` gray — those lanes are
     told apart by the axis label in the grid, by the legend in the curves."""
-    return {"domain": lanes,
-            "range": [colors[i] if i < len(colors) else LANE_OVERFLOW
-                      for i in range(len(lanes))]}
+    return {
+        "domain": lanes,
+        "range": [colors[i] if i < len(colors) else LANE_OVERFLOW for i in range(len(lanes))],
+    }
 
 
 def _controls(rows: list[dict], default_model: str) -> list[dict]:
@@ -465,13 +539,27 @@ def _controls(rows: list[dict], default_model: str) -> list[dict]:
     for signal, field, label in CONTROLS:
         values = sorted({r[field] for r in rows if r[field] is not None})
         if signal == "f_model":
-            controls.append({"signal": signal, "field": field, "label": label,
-                             "options": values, "value": default_model,
-                             "render": len(values) > 1})
+            controls.append(
+                {
+                    "signal": signal,
+                    "field": field,
+                    "label": label,
+                    "options": values,
+                    "value": default_model,
+                    "render": len(values) > 1,
+                }
+            )
         elif len(values) > 1:
-            controls.append({"signal": signal, "field": field, "label": label,
-                             "options": ["all", *values], "value": "all",
-                             "render": True})
+            controls.append(
+                {
+                    "signal": signal,
+                    "field": field,
+                    "label": label,
+                    "options": ["all", *values],
+                    "value": "all",
+                    "render": True,
+                }
+            )
     return controls
 
 
@@ -479,8 +567,13 @@ def _filters(controls: list[dict]) -> list[dict]:
     out = []
     for c in controls:
         field, signal = c["field"], c["signal"]
-        out.append({"filter": f"datum.{field} === {signal}" if signal == "f_model"
-                    else f"{signal} === 'all' || datum.{field} === {signal}"})
+        out.append(
+            {
+                "filter": f"datum.{field} === {signal}"
+                if signal == "f_model"
+                else f"{signal} === 'all' || datum.{field} === {signal}"
+            }
+        )
     return out
 
 
@@ -499,8 +592,11 @@ def _job_depth(rows: list[dict]) -> str | None:
     depths = sorted(r["job_at"] for r in rows if r.get("job_at"))
     if not depths:
         return None
-    median = depths[len(depths) // 2] if len(depths) % 2 else (
-        depths[len(depths) // 2 - 1] + depths[len(depths) // 2]) / 2
+    median = (
+        depths[len(depths) // 2]
+        if len(depths) % 2
+        else (depths[len(depths) // 2 - 1] + depths[len(depths) // 2]) / 2
+    )
     return f"~{round(median / 500) / 2:g}k"
 
 
@@ -560,8 +656,9 @@ def _anchor_labels(anchors: tuple, span: float | None) -> list[tuple[int, str]]:
     return out
 
 
-def _metric_axis(title: str, subtitle: str | None, anchors: tuple | None,
-                 span: float | None = None) -> dict:
+def _metric_axis(
+    title: str, subtitle: str | None, anchors: tuple | None, span: float | None = None
+) -> dict:
     """The x axis of one grid column: its heading *and*, where the column has
     reading-speed anchors, its reference rules.
 
@@ -574,19 +671,31 @@ def _metric_axis(title: str, subtitle: str | None, anchors: tuple | None,
     reach itself). An anchored column's tick labels are those anchors' names, as far
     as they fit (`_anchor_labels`); an unanchored column keeps plain numeric ticks."""
     axis: dict = {
-        "orient": "top", "titleAnchor": "start",
+        "orient": "top",
+        "titleAnchor": "start",
         "title": [title, subtitle] if subtitle else title,
-        "titleFontSize": 12, "titleLineHeight": 13,
-        "labelFontSize": 9, "labelOpacity": 0.7, "labelOverlap": "greedy",
-        "ticks": False, "domain": False,
+        "titleFontSize": 12,
+        "titleLineHeight": 13,
+        "labelFontSize": 9,
+        "labelOpacity": 0.7,
+        "labelOverlap": "greedy",
+        "ticks": False,
+        "domain": False,
     }
     if not anchors:
         return {**axis, "grid": False}
-    label = "".join(f"datum.value === {v} ? '{text}' : "
-                    for v, text in _anchor_labels(anchors, span))
-    return {**axis, "grid": True, "gridDash": [1, 3], "gridOpacity": 0.4,
-            "gridColor": "currentColor", "values": [v for v, _ in anchors],
-            "labelExpr": f"{label}''"}
+    label = "".join(
+        f"datum.value === {v} ? '{text}' : " for v, text in _anchor_labels(anchors, span)
+    )
+    return {
+        **axis,
+        "grid": True,
+        "gridDash": [1, 3],
+        "gridOpacity": 0.4,
+        "gridColor": "currentColor",
+        "values": [v for v, _ in anchors],
+        "labelExpr": f"{label}''",
+    }
 
 
 def _grid_tooltip(metric: str) -> list[dict]:
@@ -626,8 +735,12 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
     react to the controls. Vega-lite merges the axes of layers sharing a scale, so
     exactly one layer per column carries the axis objects: the one that anchors the
     scale (the interval's rule, or the bar)."""
-    y = {"field": "lane", "type": "nominal", "title": None,
-         "sort": {"field": "rank", "op": "min", "order": "ascending"}}
+    y = {
+        "field": "lane",
+        "type": "nominal",
+        "title": None,
+        "sort": {"field": "rank", "op": "min", "order": "ascending"},
+    }
     job = _job_depth(rows)
     spans = _metric_spans(rows)
     columns = []
@@ -636,12 +749,14 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
         if subtitle and "{job}" in subtitle:
             subtitle = subtitle.format(job=job) if job else None
         tooltip = _grid_tooltip(metric)
-        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11}
-                  if labelled else None}
-        x_axis = _metric_axis(title, subtitle, READING_ANCHORS.get(metric),
-                              spans.get(metric))
-        color = {"field": "lane", "type": "nominal", "legend": None,
-                 "scale": _lane_scale(lanes, LANE_COLORS)}
+        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11} if labelled else None}
+        x_axis = _metric_axis(title, subtitle, READING_ANCHORS.get(metric), spans.get(metric))
+        color = {
+            "field": "lane",
+            "type": "nominal",
+            "legend": None,
+            "scale": _lane_scale(lanes, LANE_COLORS),
+        }
         text = {"type": "text", "align": "left", "dx": 4, "fontSize": 10}
         note = {**text, "fontStyle": "italic", "opacity": 0.65}
         if metric in RANGE_METRICS:
@@ -651,69 +766,132 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
             layer = [
                 # A rule carries no zero the way a bar does; ask for it, or a lane
                 # whose whole range sits high would read as if it started there.
-                {"transform": [{"filter": "datum.hi !== null"}],
-                 "mark": {"type": "rule", "strokeWidth": 7, "strokeCap": "round",
-                          "opacity": 0.4},
-                 "encoding": {
-                     "y": y_axis,
-                     "x": {"field": "lo", "type": "quantitative",
-                           "scale": {"zero": True}, "axis": x_axis},
-                     "x2": {"field": "hi"},
-                     "color": color, "tooltip": tooltip}},
-                {"transform": [{"filter": "datum.value !== null"}],
-                 "mark": {"type": "point", "filled": True, "size": 46,
-                          "stroke": "currentColor", "strokeWidth": 1},
-                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
-                              "color": color, "tooltip": tooltip}},
+                {
+                    "transform": [{"filter": "datum.hi !== null"}],
+                    "mark": {
+                        "type": "rule",
+                        "strokeWidth": 7,
+                        "strokeCap": "round",
+                        "opacity": 0.4,
+                    },
+                    "encoding": {
+                        "y": y_axis,
+                        "x": {
+                            "field": "lo",
+                            "type": "quantitative",
+                            "scale": {"zero": True},
+                            "axis": x_axis,
+                        },
+                        "x2": {"field": "hi"},
+                        "color": color,
+                        "tooltip": tooltip,
+                    },
+                },
+                {
+                    "transform": [{"filter": "datum.value !== null"}],
+                    "mark": {
+                        "type": "point",
+                        "filled": True,
+                        "size": 46,
+                        "stroke": "currentColor",
+                        "strokeWidth": 1,
+                    },
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "value", "type": "quantitative"},
+                        "color": color,
+                        "tooltip": tooltip,
+                    },
+                },
                 # The number the job measured, on the dot that marks it. Only a cell
                 # that scored one gets a label at all: the sweep's deep end is a
                 # measurement of the sweep, not of the job, and printing it here
                 # would read as the number the cell failed to produce.
-                {"transform": [{"filter": "datum.value !== null"}],
-                 "mark": edge,
-                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
-                              "text": {"field": "value", "format": fmt}}},
-                {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
-                 "mark": {"type": "point", "opacity": 0},
-                 "encoding": {"y": y, "x": {"field": "headroom",
-                                            "type": "quantitative"}}},
-                {"transform": [{"filter": "datum.note !== null"},
-                               {"calculate": "datum.label_x === null ? 0 : datum.label_x",
-                                "as": "note_x"}],
-                 "mark": {**note, "dx": 9},
-                 "encoding": {"y": y, "x": {"field": "note_x", "type": "quantitative"},
-                              "text": {"field": "note"}}},
+                {
+                    "transform": [{"filter": "datum.value !== null"}],
+                    "mark": edge,
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "value", "type": "quantitative"},
+                        "text": {"field": "value", "format": fmt},
+                    },
+                },
+                {
+                    "transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                    "mark": {"type": "point", "opacity": 0},
+                    "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+                },
+                {
+                    "transform": [
+                        {"filter": "datum.note !== null"},
+                        {"calculate": "datum.label_x === null ? 0 : datum.label_x", "as": "note_x"},
+                    ],
+                    "mark": {**note, "dx": 9},
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "note_x", "type": "quantitative"},
+                        "text": {"field": "note"},
+                    },
+                },
             ]
         else:
             layer = [
-                {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
-                 "encoding": {
-                     "y": y_axis,
-                     "x": {"field": "value", "type": "quantitative", "axis": x_axis},
-                     "color": color, "tooltip": tooltip}},
-                {"transform": [{"filter": "datum.value !== null"}],
-                 "mark": text,
-                 "encoding": {"y": y, "x": {"field": "value", "type": "quantitative"},
-                              "text": {"field": "value", "format": fmt}}},
-                {"transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
-                 "mark": {"type": "point", "opacity": 0},
-                 "encoding": {"y": y, "x": {"field": "headroom",
-                                            "type": "quantitative"}}},
-                {"transform": [{"filter": "datum.note !== null"}],
-                 "mark": note,
-                 "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
-                              "text": {"field": "note"}}},
+                {
+                    "mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+                    "encoding": {
+                        "y": y_axis,
+                        "x": {"field": "value", "type": "quantitative", "axis": x_axis},
+                        "color": color,
+                        "tooltip": tooltip,
+                    },
+                },
+                {
+                    "transform": [{"filter": "datum.value !== null"}],
+                    "mark": text,
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "value", "type": "quantitative"},
+                        "text": {"field": "value", "format": fmt},
+                    },
+                },
+                {
+                    "transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
+                    "mark": {"type": "point", "opacity": 0},
+                    "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+                },
+                {
+                    "transform": [{"filter": "datum.note !== null"}],
+                    "mark": note,
+                    "encoding": {
+                        "y": y,
+                        "x": {"datum": 0, "type": "quantitative"},
+                        "text": {"field": "note"},
+                    },
+                },
             ]
-        columns.append({
-            "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
-            "facet": {"row": {"field": "dev_class", "title": None, "sort": list(CLASSES),
-                              "header": {"labels": labelled, "labelAngle": 0,
-                                         "labelAlign": "left", "labelFontWeight": "bold",
-                                         "labelPadding": 2, "labelLimit": 120}}},
-            "spacing": 6,
-            "resolve": {"scale": {"y": "independent"}},  # a band shows only its lanes
-            "spec": {"width": GRID_WIDTH, "height": {"step": 21}, "layer": layer},
-        })
+        columns.append(
+            {
+                "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
+                "facet": {
+                    "row": {
+                        "field": "dev_class",
+                        "title": None,
+                        "sort": list(CLASSES),
+                        "header": {
+                            "labels": labelled,
+                            "labelAngle": 0,
+                            "labelAlign": "left",
+                            "labelFontWeight": "bold",
+                            "labelPadding": 2,
+                            "labelLimit": 120,
+                        },
+                    }
+                },
+                "spacing": 6,
+                "resolve": {"scale": {"y": "independent"}},  # a band shows only its lanes
+                "spec": {"width": GRID_WIDTH, "height": {"step": 21}, "layer": layer},
+            }
+        )
     return {
         "$schema": VL_SCHEMA,
         "data": {"values": rows},
@@ -746,8 +924,10 @@ def _workload(p: dict) -> str:
     that work is charged — together they make a column of seconds mean something."""
     parts = []
     if p["depth"]:
-        parts.append(f"~{_words(p['depth'])} words of conversation already in the "
-                     f"context ({p['depth']:,} tokens)")
+        parts.append(
+            f"~{_words(p['depth'])} words of conversation already in the "
+            f"context ({p['depth']:,} tokens)"
+        )
     if p["prompt"]:
         parts.append(f"a ~{_words(p['prompt'])}-word prompt ({p['prompt']:,} tokens)")
     if p["out"]:
@@ -784,8 +964,7 @@ def _task_geometry(sweeps: pd.DataFrame) -> dict[tuple, dict]:
     if "tps_p50" in sweeps:
         dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)]
         for cell, g in dec.groupby(key, sort=False):
-            points = sorted([int(p.kv_fill), round(float(p.tps_p50), 2)]
-                            for p in g.itertuples())
+            points = sorted([int(p.kv_fill), round(float(p.tps_p50), 2)] for p in g.itertuples())
             out.setdefault(cell, {}).update(ladder=points, kv_max=points[-1][0])
     return out
 
@@ -815,26 +994,34 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
         width = g.get("w")
         b = _plain(getattr(r, "fit_intercept_ms", None), 3)
         m = _plain(getattr(r, "fit_slope_ms_per_1k", None), 4)
-        fit = ({"w": int(width), "b": b, "m": m,
+        fit = (
+            {
+                "w": int(width),
+                "b": b,
+                "m": m,
                 "r2": _plain(getattr(r, "fit_r2", None), 5),
-                "resid": _plain(getattr(r, "fit_resid_max_pct", None), 2)}
-               if width and b is not None and m is not None else None)
+                "resid": _plain(getattr(r, "fit_resid_max_pct", None), 2),
+            }
+            if width and b is not None and m is not None
+            else None
+        )
         ladder = g.get("ladder") or []
         if fit is None and not ladder:
             continue
         measured = None
         if r.status == "ok":
-            measured = {"ttft": _seconds(getattr(r, "ttft_ms_p50", None)),
-                        "tps": _plain(getattr(r, "decode_tps_p50", None)),
-                        "total": _seconds(getattr(r, "completion_ms_p50", None))}
+            measured = {
+                "ttft": _seconds(getattr(r, "ttft_ms_p50", None)),
+                "tps": _plain(getattr(r, "decode_tps_p50", None)),
+                "total": _seconds(getattr(r, "completion_ms_p50", None)),
+            }
             # The job measured a real generation rate at a real fill (its prompt
             # plus half its reply). It joins the ladder as a point: on the slow
             # lanes whose sweep reached one deep fill this is the difference
             # between interpolating and holding an 8 tok/s rate against a job
             # that measured 20 — see NOCOMMIT U10. On such lanes the summarize
             # dot then checks prefill only; the generation point *is* the job.
-            ttft, comp = (getattr(r, "ttft_ms_p50", None),
-                          getattr(r, "completion_ms_p50", None))
+            ttft, comp = (getattr(r, "ttft_ms_p50", None), getattr(r, "completion_ms_p50", None))
             ptps, dtps = (getattr(r, "prefill_tps_p50", None), measured["tps"])
             if all(v is not None and v == v for v in (ttft, comp, ptps, dtps)):
                 reply = dtps * (comp - ttft) / 1e3
@@ -850,24 +1037,33 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
         # reader for prefilling the prompt roughly three times. What it does buy on a
         # GPU lane — the driver's pipeline set — the first-launch chart reports on
         # its own, as the once-per-machine cost it is.
-        spans = [_plain(getattr(r, f"{span}_ms_p50", None), 1)
-                 for span in ("model_load", "context_init")]
+        spans = [
+            _plain(getattr(r, f"{span}_ms_p50", None), 1) for span in ("model_load", "context_init")
+        ]
         paid = [s for s in spans if s is not None]
         n_ctx_train = _plain(getattr(r, "geo_n_ctx_train", None), 0)
-        records.append({
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "model": r.model, "quant": r.quant, "backend": r.backend,
-            "rank": rank.get((r.model, r.lane), len(rank)),
-            "fit": fit, "pre_max": g.get("pre_max"),
-            "ladder": ladder, "kv_max": g.get("kv_max"),
-            # The model's own trained context: the one limit the page refuses at,
-            # because it is a fact about the model rather than about our sweep budget.
-            "n_ctx_train": None if n_ctx_train is None else int(n_ctx_train),
-            "load_s": round(sum(paid) / 1e3, 2) if paid else None,
-            "cold_s": _seconds(getattr(r, "cold_start_ms_p50", None)),
-            "first_launch_s": _compile_seconds(r),
-            "measured": measured,
-        })
+        records.append(
+            {
+                "lane": r.lane,
+                "dev_class": r.dev_class,
+                "machine": r.machine,
+                "model": r.model,
+                "quant": r.quant,
+                "backend": r.backend,
+                "rank": rank.get((r.model, r.lane), len(rank)),
+                "fit": fit,
+                "pre_max": g.get("pre_max"),
+                "ladder": ladder,
+                "kv_max": g.get("kv_max"),
+                # The model's own trained context: the one limit the page refuses at,
+                # because it is a fact about the model rather than about our sweep budget.
+                "n_ctx_train": None if n_ctx_train is None else int(n_ctx_train),
+                "load_s": round(sum(paid) / 1e3, 2) if paid else None,
+                "cold_s": _seconds(getattr(r, "cold_start_ms_p50", None)),
+                "first_launch_s": _compile_seconds(r),
+                "measured": measured,
+            }
+        )
     # Each task's note opens with the work its defaults stand for, in words as well
     # as tokens; the controls row carries the live word count as the reader types.
     tasks = [{**t, "note": f"{_workload(t)} {t['note']}"} for t in TASKS]
@@ -914,66 +1110,123 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
     column's reading-speed gridlines, meaningless when that column is seconds) when
     the reader picks another task, by re-embedding this spec with the picked task's
     `columns` — the titles live in TASKS, not here."""
-    y = {"field": "lane", "type": "nominal", "title": None,
-         "sort": {"field": "rank", "op": "min", "order": "ascending"}}
+    y = {
+        "field": "lane",
+        "type": "nominal",
+        "title": None,
+        "sort": {"field": "rank", "op": "min", "order": "ascending"},
+    }
     tooltip = _task_tooltip()
     columns = []
-    for i, (metric, (title, subtitle)) in enumerate(zip(TASK_METRICS,
-                                                        TASKS[0]["columns"],
-                                                        strict=True)):
+    for i, (metric, (title, subtitle)) in enumerate(
+        zip(TASK_METRICS, TASKS[0]["columns"], strict=True)
+    ):
         labelled = i == 0
-        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11}
-                  if labelled else None}
+        y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11} if labelled else None}
         # Generation carries a reading-speed anchor (see TASK_ANCHORS);
         # seconds-for-a-task has no reading-speed equivalent. The trimmed tick format
         # is for the moment before the page's first insert, when the domain is empty
         # and vega would otherwise derive six decimals of precision for a lone zero.
-        x_axis = {**_metric_axis(title, subtitle, TASK_ANCHORS.get(metric)),
-                  "format": "~r"}
-        color = {"field": "lane", "type": "nominal", "legend": None,
-                 "scale": _lane_scale(lanes, LANE_COLORS)}
+        x_axis = {**_metric_axis(title, subtitle, TASK_ANCHORS.get(metric)), "format": "~r"}
+        color = {
+            "field": "lane",
+            "type": "nominal",
+            "legend": None,
+            "scale": _lane_scale(lanes, LANE_COLORS),
+        }
         text = {"type": "text", "align": "left", "dx": 9, "fontSize": 10}
-        columns.append({
-            "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
-            "facet": {"row": {"field": "dev_class", "title": None, "sort": list(CLASSES),
-                              "header": {"labels": labelled, "labelAngle": 0,
-                                         "labelAlign": "left", "labelFontWeight": "bold",
-                                         "labelPadding": 2, "labelLimit": 120}}},
-            "spacing": 6,
-            "resolve": {"scale": {"y": "independent"}},
-            "spec": {"width": GRID_WIDTH, "height": {"step": 21}, "layer": [
-                {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
-                 "encoding": {
-                     "y": y_axis,
-                     "x": {"field": "value", "type": "quantitative",
-                           "scale": {"zero": True}, "axis": x_axis},
-                     "color": color,
-                     "opacity": {"condition": {"test": "datum.est", "value": 0.45},
-                                 "value": 1},
-                     "tooltip": tooltip}},
-                # The dot is a measurement, not a prediction, so it answers for itself:
-                # the fit quality behind the bar has nothing to do with it.
-                {"transform": [{"filter": "datum.measured !== null"}],
-                 "mark": {"type": "point", "filled": True, "size": 46,
-                          "stroke": "currentColor", "strokeWidth": 1},
-                 "encoding": {"y": y, "x": {"field": "measured", "type": "quantitative"},
-                              "color": color,
-                              "tooltip": [{"field": "measured_label",
-                                           "title": "measured, this column"}]}},
-                {"transform": [{"filter": "datum.label !== null"}],
-                 "mark": text,
-                 "encoding": {"y": y, "x": {"field": "label_x", "type": "quantitative"},
-                              "text": {"field": "label"}}},
-                {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
-                 "mark": {"type": "point", "opacity": 0},
-                 "encoding": {"y": y, "x": {"field": "headroom",
-                                            "type": "quantitative"}}},
-                {"transform": [{"filter": "datum.note !== null"}],
-                 "mark": {**text, "dx": 4, "fontStyle": "italic", "opacity": 0.65},
-                 "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
-                              "text": {"field": "note"}}},
-            ]},
-        })
+        columns.append(
+            {
+                "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
+                "facet": {
+                    "row": {
+                        "field": "dev_class",
+                        "title": None,
+                        "sort": list(CLASSES),
+                        "header": {
+                            "labels": labelled,
+                            "labelAngle": 0,
+                            "labelAlign": "left",
+                            "labelFontWeight": "bold",
+                            "labelPadding": 2,
+                            "labelLimit": 120,
+                        },
+                    }
+                },
+                "spacing": 6,
+                "resolve": {"scale": {"y": "independent"}},
+                "spec": {
+                    "width": GRID_WIDTH,
+                    "height": {"step": 21},
+                    "layer": [
+                        {
+                            "mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+                            "encoding": {
+                                "y": y_axis,
+                                "x": {
+                                    "field": "value",
+                                    "type": "quantitative",
+                                    "scale": {"zero": True},
+                                    "axis": x_axis,
+                                },
+                                "color": color,
+                                "opacity": {
+                                    "condition": {"test": "datum.est", "value": 0.45},
+                                    "value": 1,
+                                },
+                                "tooltip": tooltip,
+                            },
+                        },
+                        # The dot is a measurement, not a prediction, so it answers for itself:
+                        # the fit quality behind the bar has nothing to do with it.
+                        {
+                            "transform": [{"filter": "datum.measured !== null"}],
+                            "mark": {
+                                "type": "point",
+                                "filled": True,
+                                "size": 46,
+                                "stroke": "currentColor",
+                                "strokeWidth": 1,
+                            },
+                            "encoding": {
+                                "y": y,
+                                "x": {"field": "measured", "type": "quantitative"},
+                                "color": color,
+                                "tooltip": [
+                                    {"field": "measured_label", "title": "measured, this column"}
+                                ],
+                            },
+                        },
+                        {
+                            "transform": [{"filter": "datum.label !== null"}],
+                            "mark": text,
+                            "encoding": {
+                                "y": y,
+                                "x": {"field": "label_x", "type": "quantitative"},
+                                "text": {"field": "label"},
+                            },
+                        },
+                        {
+                            "transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                            "mark": {"type": "point", "opacity": 0},
+                            "encoding": {
+                                "y": y,
+                                "x": {"field": "headroom", "type": "quantitative"},
+                            },
+                        },
+                        {
+                            "transform": [{"filter": "datum.note !== null"}],
+                            "mark": {**text, "dx": 4, "fontStyle": "italic", "opacity": 0.65},
+                            "encoding": {
+                                "y": y,
+                                "x": {"datum": 0, "type": "quantitative"},
+                                "text": {"field": "note"},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
     return {
         "$schema": VL_SCHEMA,
         "data": {"name": "tasks"},  # filled by assets/tasks.js, never at build time
@@ -1106,8 +1359,12 @@ def _launch_rows(df: pd.DataFrame) -> list[dict]:
         gpu = r.family != "cpu"
         shader_bytes = _plain(getattr(r, "shader_bytes", None), 0)
         base = {
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "model": r.model, "quant": r.quant, "backend": r.backend,
+            "lane": r.lane,
+            "dev_class": r.dev_class,
+            "machine": r.machine,
+            "model": r.model,
+            "quant": r.quant,
+            "backend": r.backend,
             "rank": rank.get((r.model, r.lane), len(rank)),
         }
         cell = []
@@ -1127,17 +1384,34 @@ def _launch_rows(df: pd.DataFrame) -> list[dict]:
             # How much was compiled, out of which cache, and what the estimate was
             # cut from describe *this* phase and only this one — a cold read of the
             # weights compiles nothing and nets nothing out.
-            cell.append({**base, "phase": LAUNCH_PHASES[0], "seconds": value,
-                         "note": note, "cache": r.shader_cache,
-                         "label": _launch_label(value, pinned),
-                         "span": span, "netted": netted,
-                         "mb": _plain(shader_bytes / 1e6) if shader_bytes else None})
+            cell.append(
+                {
+                    **base,
+                    "phase": LAUNCH_PHASES[0],
+                    "seconds": value,
+                    "note": note,
+                    "cache": r.shader_cache,
+                    "label": _launch_label(value, pinned),
+                    "span": span,
+                    "netted": netted,
+                    "mb": _plain(shader_bytes / 1e6) if shader_bytes else None,
+                }
+            )
         cold = _seconds(getattr(r, "cold_start_ms_p50", None))
         if cold is not None:
-            cell.append({**base, "phase": LAUNCH_PHASES[1], "seconds": cold,
-                         "note": None, "cache": None, "mb": None,
-                         "span": None, "netted": None,
-                         "label": _launch_label(cold, True)})
+            cell.append(
+                {
+                    **base,
+                    "phase": LAUNCH_PHASES[1],
+                    "seconds": cold,
+                    "note": None,
+                    "cache": None,
+                    "mb": None,
+                    "span": None,
+                    "netted": None,
+                    "label": _launch_label(cold, True),
+                }
+            )
         if any(row["seconds"] is not None for row in cell):
             rows += cell
     return rows
@@ -1159,81 +1433,135 @@ def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> di
     belong to the compile, and a cold read of the weights has no such fields to show.
     The axis rides the compile layer, the one that anchors the scale — two layers on
     one scale each defining an axis would merge into a doubled heading."""
-    y = {"field": "lane", "type": "nominal", "title": None,
-         "sort": {"field": "rank", "op": "min", "order": "ascending"},
-         "axis": {"labelLimit": 200, "labelFontSize": 11}}
-    offset = {"field": "phase", "type": "nominal",
-              "scale": {"domain": list(LAUNCH_PHASES)}}
+    y = {
+        "field": "lane",
+        "type": "nominal",
+        "title": None,
+        "sort": {"field": "rank", "op": "min", "order": "ascending"},
+        "axis": {"labelLimit": 200, "labelFontSize": 11},
+    }
+    offset = {"field": "phase", "type": "nominal", "scale": {"domain": list(LAUNCH_PHASES)}}
     # A CPU-only selection leaves this chart with nothing to draw, which collapses
     # the domain to [0, 0] — and on a zero-width domain vega derives six decimals of
     # tick precision, so the empty chart would read "0.000000". An explicit trimmed
     # format keeps that lone tick at "0" without padding the populated ticks either.
-    x = {"field": "seconds", "type": "quantitative", "title": None,
-         "scale": {"zero": True}, "axis": {"format": "~r"}}
-    color = {"field": "lane", "type": "nominal", "legend": None,
-             "scale": _lane_scale(lanes, LANE_COLORS)}
+    x = {
+        "field": "seconds",
+        "type": "quantitative",
+        "title": None,
+        "scale": {"zero": True},
+        "axis": {"format": "~r"},
+    }
+    color = {
+        "field": "lane",
+        "type": "nominal",
+        "legend": None,
+        "scale": _lane_scale(lanes, LANE_COLORS),
+    }
     # The phase rides `opacity`, not `fillOpacity`: vega-lite 6.4.1 compiles no
     # legend for `fillOpacity` (verified against the shipped build), and the legend
     # *is* the phase key. On a bar with no stroke the two channels draw the same
     # thing. The symbols take the surface's own ink, so the pair reads as one square
     # at two strengths in either theme.
-    opacity = {"field": "phase", "type": "nominal",
-               "scale": {"domain": list(LAUNCH_PHASES), "range": [1, 0.5]},
-               "legend": {"orient": "bottom", "title": None, "symbolType": "square",
-                          "symbolFillColor": "currentColor", "symbolStrokeWidth": 0}}
+    opacity = {
+        "field": "phase",
+        "type": "nominal",
+        "scale": {"domain": list(LAUNCH_PHASES), "range": [1, 0.5]},
+        "legend": {
+            "orient": "bottom",
+            "title": None,
+            "symbolType": "square",
+            "symbolFillColor": "currentColor",
+            "symbolStrokeWidth": 0,
+        },
+    }
     # The lane is the axis label and the model is a selection: what a bar cannot say
     # is which of the two phases it is and how long that phase took.
     common = [{"field": "phase"}, {"field": "seconds", "title": "seconds"}]
     tooltips = {
-        LAUNCH_PHASES[0]: [*common, {"field": "mb", "title": "compiled (MB)"},
-                           {"field": "cache", "title": "shader cache"},
-                           # The estimate's own arithmetic, so a reader can see what
-                           # it was cut from instead of taking the difference on
-                           # trust: seconds == span - netted.
-                           {"field": "span", "title": "warm pass (s)"},
-                           {"field": "netted", "title": "its prefill (s)"}],
+        LAUNCH_PHASES[0]: [
+            *common,
+            {"field": "mb", "title": "compiled (MB)"},
+            {"field": "cache", "title": "shader cache"},
+            # The estimate's own arithmetic, so a reader can see what
+            # it was cut from instead of taking the difference on
+            # trust: seconds == span - netted.
+            {"field": "span", "title": "warm pass (s)"},
+            {"field": "netted", "title": "its prefill (s)"},
+        ],
         LAUNCH_PHASES[1]: common,
     }
     bare_x = {k: v for k, v in x.items() if k != "axis"}  # only one layer may define it
     bars = [
-        {"transform": [{"filter": f"datum.seconds !== null "
-                                  f"&& datum.phase === '{phase}'"}],
-         "mark": {"type": "bar", "height": 11, "cornerRadiusEnd": 3},
-         "encoding": {"y": y, "yOffset": offset, "x": x if i == 0 else bare_x,
-                      "color": color, "opacity": opacity, "tooltip": tip}}
+        {
+            "transform": [{"filter": f"datum.seconds !== null && datum.phase === '{phase}'"}],
+            "mark": {"type": "bar", "height": 11, "cornerRadiusEnd": 3},
+            "encoding": {
+                "y": y,
+                "yOffset": offset,
+                "x": x if i == 0 else bare_x,
+                "color": color,
+                "opacity": opacity,
+                "tooltip": tip,
+            },
+        }
         for i, (phase, tip) in enumerate(tooltips.items())
     ]
     return {
         "$schema": VL_SCHEMA,
-        "title": {"text": "one-time first launch (s)", "anchor": "start",
-                  # Two lines, because one runs past the container and clips.
-                  "subtitle": ["compilation estimated from an empty shader cache: "
-                               "the warm pass, less what its width walk costs as "
-                               "prefill",
-                               f"{UNVERIFIED_MARK} no cache to empty here (macOS, "
-                               f"windows), so the estimate is a floor"],
-                  "fontSize": 12, "subtitleFontSize": 10},
+        "title": {
+            "text": "one-time first launch (s)",
+            "anchor": "start",
+            # Two lines, because one runs past the container and clips.
+            "subtitle": [
+                "compilation estimated from an empty shader cache: "
+                "the warm pass, less what its width walk costs as "
+                "prefill",
+                f"{UNVERIFIED_MARK} no cache to empty here (macOS, "
+                f"windows), so the estimate is a floor",
+            ],
+            "fontSize": 12,
+            "subtitleFontSize": 10,
+        },
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
-        "width": 400, "height": {"step": 30},
+        "width": 400,
+        "height": {"step": 30},
         "layer": [
             *bars,
-            {"transform": [{"filter": "datum.seconds !== null"}],
-             "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
-             "encoding": {"y": y, "yOffset": offset,
-                          "x": {"field": "seconds", "type": "quantitative"},
-                          "text": {"field": "label"}}},
-            {"transform": [{"calculate": "datum.seconds * 1.16", "as": "headroom"}],
-             "mark": {"type": "point", "opacity": 0},
-             "encoding": {"y": y, "x": {"field": "headroom",
-                                        "type": "quantitative"}}},
-            {"transform": [{"filter": "datum.note !== null"}],
-             "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10,
-                      "fontStyle": "italic", "opacity": 0.65},
-             "encoding": {"y": y, "yOffset": offset,
-                          "x": {"datum": 0, "type": "quantitative"},
-                          "text": {"field": "note"}}},
+            {
+                "transform": [{"filter": "datum.seconds !== null"}],
+                "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
+                "encoding": {
+                    "y": y,
+                    "yOffset": offset,
+                    "x": {"field": "seconds", "type": "quantitative"},
+                    "text": {"field": "label"},
+                },
+            },
+            {
+                "transform": [{"calculate": "datum.seconds * 1.16", "as": "headroom"}],
+                "mark": {"type": "point", "opacity": 0},
+                "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+            },
+            {
+                "transform": [{"filter": "datum.note !== null"}],
+                "mark": {
+                    "type": "text",
+                    "align": "left",
+                    "dx": 4,
+                    "fontSize": 10,
+                    "fontStyle": "italic",
+                    "opacity": 0.65,
+                },
+                "encoding": {
+                    "y": y,
+                    "yOffset": offset,
+                    "x": {"datum": 0, "type": "quantitative"},
+                    "text": {"field": "note"},
+                },
+            },
         ],
         "config": {"view": {"stroke": None}, "axis": {"grid": False}},
     }
@@ -1247,17 +1575,32 @@ def _single_depth(df: pd.DataFrame) -> pd.Series:
     return df.groupby(["lane", "model"]).lane.transform("size") < 2
 
 
-def _curve_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
-                x: str, y: str, x_title: str, y_title: str,
-                log_y: bool = False) -> dict:
+def _curve_spec(
+    rows: list[dict],
+    lanes: list[str],
+    controls: list[dict],
+    *,
+    x: str,
+    y: str,
+    x_title: str,
+    y_title: str,
+    log_y: bool = False,
+) -> dict:
     """A curve per lane, plus the lanes that have one depth instead of a curve —
     hollow marks, so a single measurement never masquerades as a trend."""
     encoding = {
         "x": {"field": x, "type": "quantitative", "title": x_title},
-        "y": {"field": y, "type": "quantitative", "title": y_title,
-              "scale": {"type": "log"} if log_y else {}},
-        "color": {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
-                  "legend": {"orient": "bottom", "columns": 2, "title": None}},
+        "y": {
+            "field": y,
+            "type": "quantitative",
+            "title": y_title,
+            "scale": {"type": "log"} if log_y else {},
+        },
+        "color": {
+            "field": "lane",
+            "scale": _lane_scale(lanes, LANE_COLORS),
+            "legend": {"orient": "bottom", "columns": 2, "title": None},
+        },
         # The point's two coordinates, read off the axes it sits between — which lane's
         # curve it belongs to is the legend's job and the color's.
         "tooltip": [{"field": x, "title": x_title}, {"field": y, "title": y_title}],
@@ -1267,14 +1610,19 @@ def _curve_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
-        "width": 400, "height": 220,
+        "width": 400,
+        "height": 220,
         "layer": [
-            {"transform": [{"filter": "!datum.single"}],
-             "mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
-             "encoding": encoding},
-            {"transform": [{"filter": "datum.single"}],
-             "mark": {"type": "point", "size": 70, "filled": False, "strokeWidth": 2},
-             "encoding": encoding},
+            {
+                "transform": [{"filter": "!datum.single"}],
+                "mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
+                "encoding": encoding,
+            },
+            {
+                "transform": [{"filter": "datum.single"}],
+                "mark": {"type": "point", "size": 70, "filled": False, "strokeWidth": 2},
+                "encoding": encoding,
+            },
         ],
         "config": {"view": {"stroke": None}},
     }
@@ -1297,12 +1645,20 @@ def _memory_rows(mem: pd.DataFrame) -> list[dict]:
     rows = []
     for r in mem.itertuples():
         total = r.weights_mb + r.kv_mb + r.compute_mb
-        rows.append({
-            "lane": r.lane, "dev_class": r.dev_class, "model": r.model,
-            "quant": r.quant, "backend": r.backend, "n_ctx": int(r.n_ctx),
-            "weights_mb": _plain(r.weights_mb), "kv_mb": _plain(r.kv_mb),
-            "compute_mb": _plain(r.compute_mb), "total_mb": _plain(total),
-        })
+        rows.append(
+            {
+                "lane": r.lane,
+                "dev_class": r.dev_class,
+                "model": r.model,
+                "quant": r.quant,
+                "backend": r.backend,
+                "n_ctx": int(r.n_ctx),
+                "weights_mb": _plain(r.weights_mb),
+                "kv_mb": _plain(r.kv_mb),
+                "compute_mb": _plain(r.compute_mb),
+                "total_mb": _plain(total),
+            }
+        )
     return rows
 
 
@@ -1315,8 +1671,11 @@ def _footprint_spec(rows: list[dict], lanes: list[str], controls: list[dict]) ->
     at the sizes the sweep measured. Zero-based, because the question is how much of
     a machine's memory the whole thing takes, not how the total varies."""
     x = {"field": "n_ctx", "type": "quantitative", "title": "context size (tokens)"}
-    color = {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
-             "legend": {"orient": "bottom", "columns": 2, "title": None}}
+    color = {
+        "field": "lane",
+        "scale": _lane_scale(lanes, LANE_COLORS),
+        "legend": {"orient": "bottom", "columns": 2, "title": None},
+    }
     # The three pools behind the two lines, and their sum: the chart draws the total
     # and the weights floor, so the split between KV and compute is what it cannot.
     tooltip = [
@@ -1328,23 +1687,29 @@ def _footprint_spec(rows: list[dict], lanes: list[str], controls: list[dict]) ->
     ]
 
     def y_of(field: str) -> dict:
-        return {"field": field, "type": "quantitative", "title": "MB reserved",
-                "scale": {"zero": True}}
+        return {
+            "field": field,
+            "type": "quantitative",
+            "title": "MB reserved",
+            "scale": {"zero": True},
+        }
 
     return {
         "$schema": VL_SCHEMA,
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
-        "width": 400, "height": 220,
+        "width": 400,
+        "height": 220,
         "layer": [
-            {"mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
-             "encoding": {"x": x, "y": y_of("total_mb"), "color": color,
-                          "tooltip": tooltip}},
-            {"mark": {"type": "line", "strokeDash": [4, 3], "strokeWidth": 2,
-                      "opacity": 0.45},
-             "encoding": {"x": x, "y": y_of("weights_mb"), "color": color,
-                          "tooltip": tooltip}},
+            {
+                "mark": {"type": "line", "point": {"size": 30}, "strokeWidth": 2},
+                "encoding": {"x": x, "y": y_of("total_mb"), "color": color, "tooltip": tooltip},
+            },
+            {
+                "mark": {"type": "line", "strokeDash": [4, 3], "strokeWidth": 2, "opacity": 0.45},
+                "encoding": {"x": x, "y": y_of("weights_mb"), "color": color, "tooltip": tooltip},
+            },
         ],
         "config": {"view": {"stroke": None}},
     }
@@ -1367,10 +1732,12 @@ def _job_memory_rows(ok: pd.DataFrame, mem: pd.DataFrame) -> list[dict]:
     frame = ok
     if not mem.empty:
         deepest = mem.loc[mem.groupby(keys, sort=False).n_ctx.idxmax()].copy()
-        deepest["alloc_total"] = (deepest.weights_mb + deepest.kv_mb
-                                 + deepest.compute_mb).round(1)
-        frame = ok.merge(deepest.rename(columns={"n_ctx": "alloc_ctx"})[
-            [*keys, "alloc_total", "alloc_ctx"]], on=keys, how="left")
+        deepest["alloc_total"] = (deepest.weights_mb + deepest.kv_mb + deepest.compute_mb).round(1)
+        frame = ok.merge(
+            deepest.rename(columns={"n_ctx": "alloc_ctx"})[[*keys, "alloc_total", "alloc_ctx"]],
+            on=keys,
+            how="left",
+        )
     rows = []
     for r in frame.itertuples():
         rss = _plain(getattr(r, "decode_rss_peak_mb_p50", None))
@@ -1378,21 +1745,29 @@ def _job_memory_rows(ok: pd.DataFrame, mem: pd.DataFrame) -> list[dict]:
             continue  # nothing to draw a row around
         vram = _plain(getattr(r, "decode_vram_peak_mb_p50", None))
         alloc_ctx = _plain(getattr(r, "alloc_ctx", None), 0)
-        rows.append({
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "model": r.model, "quant": r.quant, "backend": r.backend,
-            "rss_peak": rss,
-            "rss_sustained": _plain(getattr(r, "decode_rss_sustained_mb_p50", None)),
-            "prefill_rss_peak": _plain(getattr(r, "prefill_rss_peak_mb_p50", None)),
-            "vram_peak": vram, "vram_method": r.vram_method,
-            "vram_note": None if vram is not None
-            else VRAM_NOTES.get(r.vram_method, "not measured"),
-            "alloc_total": _plain(getattr(r, "alloc_total", None)),
-            "alloc_ctx": int(alloc_ctx) if alloc_ctx is not None else None,
-            # The label rides past the far end of the two measured marks, so it
-            # never prints over the device-pool dot when the two pools are alike.
-            "label_x": max(v for v in (rss, vram) if v is not None),
-        })
+        rows.append(
+            {
+                "lane": r.lane,
+                "dev_class": r.dev_class,
+                "machine": r.machine,
+                "model": r.model,
+                "quant": r.quant,
+                "backend": r.backend,
+                "rss_peak": rss,
+                "rss_sustained": _plain(getattr(r, "decode_rss_sustained_mb_p50", None)),
+                "prefill_rss_peak": _plain(getattr(r, "prefill_rss_peak_mb_p50", None)),
+                "vram_peak": vram,
+                "vram_method": r.vram_method,
+                "vram_note": None
+                if vram is not None
+                else VRAM_NOTES.get(r.vram_method, "not measured"),
+                "alloc_total": _plain(getattr(r, "alloc_total", None)),
+                "alloc_ctx": int(alloc_ctx) if alloc_ctx is not None else None,
+                # The label rides past the far end of the two measured marks, so it
+                # never prints over the device-pool dot when the two pools are alike.
+                "label_x": max(v for v in (rss, vram) if v is not None),
+            }
+        )
     return rows
 
 
@@ -1404,10 +1779,19 @@ def _job_memory_spec(rows: list[dict], lanes: list[str], controls: list[dict]) -
 
     The dashed marker is a rotated `stroke` symbol rather than a tick mark: vega
     compiles a tick to a filled rect, whose stroke dash would never show."""
-    y = {"field": "lane", "type": "nominal", "title": None, "sort": lanes,
-         "axis": {"labelLimit": 200, "labelFontSize": 11}}
-    color = {"field": "lane", "type": "nominal", "legend": None,
-             "scale": _lane_scale(lanes, LANE_COLORS)}
+    y = {
+        "field": "lane",
+        "type": "nominal",
+        "title": None,
+        "sort": lanes,
+        "axis": {"labelLimit": 200, "labelFontSize": 11},
+    }
+    color = {
+        "field": "lane",
+        "type": "nominal",
+        "legend": None,
+        "scale": _lane_scale(lanes, LANE_COLORS),
+    }
     # Each mark answers for itself: the bar is the process, the dashed marker is the
     # allocator's reference, the dot is the device pool. Splitting them keeps a lane
     # that reports no pool from printing an empty pool row — its bar never had one.
@@ -1429,40 +1813,89 @@ def _job_memory_spec(rows: list[dict], lanes: list[str], controls: list[dict]) -
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
-        "width": 400, "height": {"step": 27},
+        "width": 400,
+        "height": {"step": 27},
         "layer": [
-            {"mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
-             "encoding": {"y": y, "x": {"field": "rss_peak", "type": "quantitative",
-                                       "title": "MB"},
-                          "color": color, "tooltip": resident}},
-            {"transform": [{"filter": "datum.alloc_total !== null"}],
-             "mark": {"type": "point", "shape": "stroke", "angle": 90, "size": 200,
-                      "strokeWidth": 1.2, "strokeDash": [2, 2],
-                      "color": "currentColor", "opacity": 0.8},
-             "encoding": {"y": y, "x": {"field": "alloc_total", "type": "quantitative"},
-                          "tooltip": reserved}},
+            {
+                "mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
+                "encoding": {
+                    "y": y,
+                    "x": {"field": "rss_peak", "type": "quantitative", "title": "MB"},
+                    "color": color,
+                    "tooltip": resident,
+                },
+            },
+            {
+                "transform": [{"filter": "datum.alloc_total !== null"}],
+                "mark": {
+                    "type": "point",
+                    "shape": "stroke",
+                    "angle": 90,
+                    "size": 200,
+                    "strokeWidth": 1.2,
+                    "strokeDash": [2, 2],
+                    "color": "currentColor",
+                    "opacity": 0.8,
+                },
+                "encoding": {
+                    "y": y,
+                    "x": {"field": "alloc_total", "type": "quantitative"},
+                    "tooltip": reserved,
+                },
+            },
             # The pool dot rides just above its bar: the two numbers are often within
             # a few MB of each other (one Vulkan lane holds 1,563 MB of RSS and
             # 1,569 MB of VRAM), and a dot at the bar's own height would read as a
             # rounded end rather than a second measurement.
-            {"transform": [{"filter": "datum.vram_peak !== null"}],
-             "mark": {"type": "point", "filled": True, "size": 46, "yOffset": -9,
-                      "stroke": "currentColor", "strokeWidth": 1},
-             "encoding": {"y": y, "x": {"field": "vram_peak", "type": "quantitative"},
-                          "color": color, "tooltip": pool}},
-            {"mark": {"type": "text", "align": "left", "dx": 9, "fontSize": 10},
-             "encoding": {"y": y, "x": {"field": "label_x", "type": "quantitative"},
-                          "text": {"field": "rss_peak", "format": ".0f"}}},
-            {"transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
-             "mark": {"type": "point", "opacity": 0},
-             "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}}},
+            {
+                "transform": [{"filter": "datum.vram_peak !== null"}],
+                "mark": {
+                    "type": "point",
+                    "filled": True,
+                    "size": 46,
+                    "yOffset": -9,
+                    "stroke": "currentColor",
+                    "strokeWidth": 1,
+                },
+                "encoding": {
+                    "y": y,
+                    "x": {"field": "vram_peak", "type": "quantitative"},
+                    "color": color,
+                    "tooltip": pool,
+                },
+            },
+            {
+                "mark": {"type": "text", "align": "left", "dx": 9, "fontSize": 10},
+                "encoding": {
+                    "y": y,
+                    "x": {"field": "label_x", "type": "quantitative"},
+                    "text": {"field": "rss_peak", "format": ".0f"},
+                },
+            },
+            {
+                "transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                "mark": {"type": "point", "opacity": 0},
+                "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+            },
             # The note sits under its own bar: a lane label is already on the left and
             # the row's right edge belongs to the allocator reference.
-            {"transform": [{"filter": "datum.vram_note !== null"}],
-             "mark": {"type": "text", "align": "left", "dx": 2, "dy": 10,
-                      "fontSize": 9, "fontStyle": "italic", "opacity": 0.65},
-             "encoding": {"y": y, "x": {"datum": 0, "type": "quantitative"},
-                          "text": {"field": "vram_note"}}},
+            {
+                "transform": [{"filter": "datum.vram_note !== null"}],
+                "mark": {
+                    "type": "text",
+                    "align": "left",
+                    "dx": 2,
+                    "dy": 10,
+                    "fontSize": 9,
+                    "fontStyle": "italic",
+                    "opacity": 0.65,
+                },
+                "encoding": {
+                    "y": y,
+                    "x": {"datum": 0, "type": "quantitative"},
+                    "text": {"field": "vram_note"},
+                },
+            },
         ],
         "config": {"view": {"stroke": None}, "axis": {"grid": False}},
     }
@@ -1476,16 +1909,24 @@ def _job_memory_spec(rows: list[dict], lanes: list[str], controls: list[dict]) -
 # names the unit with the work unit the rows carry; `y_plain` is what it says when a
 # selection somehow mixes two work units.
 THREAD_PHASES = (
-    {"phase": "prefill", "title": "prompt reading, by thread width",
-     "subtitle": "one chunk from an empty cache per width — lower is better; "
-                 "compare widths, not charts",
-     "y_title": "ms per {n}-token chunk", "y_plain": "ms per chunk",
-     "value_title": "chunk (ms)"},
-    {"phase": "decode", "title": "generation, by thread width",
-     "subtitle": "one burst per width, at the same already-primed fill; "
-                 "compare widths, not charts",
-     "y_title": "tok/s of a {n}-token burst", "y_plain": "tok/s per burst",
-     "value_title": "burst (tok/s)"},
+    {
+        "phase": "prefill",
+        "title": "prompt reading, by thread width",
+        "subtitle": "one chunk from an empty cache per width — lower is better; "
+        "compare widths, not charts",
+        "y_title": "ms per {n}-token chunk",
+        "y_plain": "ms per chunk",
+        "value_title": "chunk (ms)",
+    },
+    {
+        "phase": "decode",
+        "title": "generation, by thread width",
+        "subtitle": "one burst per width, at the same already-primed fill; "
+        "compare widths, not charts",
+        "y_title": "tok/s of a {n}-token burst",
+        "y_plain": "tok/s per burst",
+        "value_title": "burst (tok/s)",
+    },
 )
 
 # How many points a fitted curve is drawn from, between one thread and the widest
@@ -1519,24 +1960,35 @@ def _thread_fits(df: pd.DataFrame) -> dict[tuple[str, str], dict]:
         scaled = _plain(r.thr_prefill_scaled_ms, 3)
         prefill = None
         if scaled is not None and floor is not None:
-            prefill = {"floor_ms": floor, "scaled_ms": scaled,
-                       "floor_pct": _plain(r.thr_prefill_floor_pct, 2),
-                       "r2": _plain(r.thr_prefill_r2, 5),
-                       "width": _plain(r.threads_batch, 0)}
+            prefill = {
+                "floor_ms": floor,
+                "scaled_ms": scaled,
+                "floor_pct": _plain(r.thr_prefill_floor_pct, 2),
+                "r2": _plain(r.thr_prefill_r2, 5),
+                "width": _plain(r.threads_batch, 0),
+            }
         rate_max = _plain(r.thr_decode_rate_max_tps, 3)
         scale = _plain(r.thr_decode_threads_scale, 4)
         decode = None
         if rate_max is not None and scale:
-            decode = {"rate_max_tps": rate_max, "threads_scale": scale,
-                      "p90": _plain(r.thr_decode_threads_p90, 2),
-                      "r2": _plain(r.thr_decode_r2, 5),
-                      "width": _plain(r.threads_decode, 0)}
+            decode = {
+                "rate_max_tps": rate_max,
+                "threads_scale": scale,
+                "p90": _plain(r.thr_decode_threads_p90, 2),
+                "r2": _plain(r.thr_decode_r2, 5),
+                "width": _plain(r.threads_decode, 0),
+            }
         if prefill is None and decode is None:
             continue
         fits[(r.lane, r.model)] = {
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "model": r.model, "quant": r.quant, "backend": r.backend,
-            "prefill": prefill, "decode": decode,
+            "lane": r.lane,
+            "dev_class": r.dev_class,
+            "machine": r.machine,
+            "model": r.model,
+            "quant": r.quant,
+            "backend": r.backend,
+            "prefill": prefill,
+            "decode": decode,
         }
     return fits
 
@@ -1561,15 +2013,27 @@ def _thread_rows(thr: pd.DataFrame, fits: dict[tuple[str, str], dict]) -> list[d
         width = _plain(r.threads_batch if r.phase == "prefill" else r.threads_decode, 0)
         fill = _plain(r.kv_fill, 0)
         fit = (fits.get((r.lane, r.model)) or {}).get(r.phase) or {}
-        rows.append({
-            "lane": r.lane, "dev_class": r.dev_class, "machine": r.machine,
-            "model": r.model, "quant": r.quant, "backend": r.backend,
-            "phase": r.phase, "kind": "point", "threads": int(r.threads),
-            "value": value, "tokens": int(r.tokens),
-            "kv_fill": None if fill is None else int(fill),
-            "at_width": bool(width is not None and int(width) == int(r.threads)),
-            "r2": fit.get("r2"), "n_widths": 0, "in_domain": True, "label": None,
-        })
+        rows.append(
+            {
+                "lane": r.lane,
+                "dev_class": r.dev_class,
+                "machine": r.machine,
+                "model": r.model,
+                "quant": r.quant,
+                "backend": r.backend,
+                "phase": r.phase,
+                "kind": "point",
+                "threads": int(r.threads),
+                "value": value,
+                "tokens": int(r.tokens),
+                "kv_fill": None if fill is None else int(fill),
+                "at_width": bool(width is not None and int(width) == int(r.threads)),
+                "r2": fit.get("r2"),
+                "n_widths": 0,
+                "in_domain": True,
+                "label": None,
+            }
+        )
     widths = Counter((r["lane"], r["model"], r["phase"]) for r in rows)
     for row in rows:  # how many widths the fit rests on, in every tooltip
         row["n_widths"] = widths[(row["lane"], row["model"], row["phase"])]
@@ -1584,15 +2048,17 @@ def _thread_spans(points: list[dict]) -> dict[tuple[str, str, str], dict]:
     spans: dict[tuple[str, str, str], dict] = {}
     for row in points:
         key = (row["lane"], row["model"], row["phase"])
-        span = spans.setdefault(key, {"widest": 0, "n": 0, "tokens": row["tokens"],
-                                      "kv_fill": row["kv_fill"]})
+        span = spans.setdefault(
+            key, {"widest": 0, "n": 0, "tokens": row["tokens"], "kv_fill": row["kv_fill"]}
+        )
         span["widest"] = max(span["widest"], row["threads"])
         span["n"] += 1
     return spans
 
 
-def _thread_fit_rows(fits: dict[tuple[str, str], dict],
-                     spans: dict[tuple[str, str, str], dict]) -> list[dict]:
+def _thread_fit_rows(
+    fits: dict[tuple[str, str], dict], spans: dict[tuple[str, str, str], dict]
+) -> list[dict]:
     """The drawn consequences of the two fits: the curve, its asymptote, and the width
     that reaches 90% of peak decode.
 
@@ -1615,38 +2081,73 @@ def _thread_fit_rows(fits: dict[tuple[str, str], dict],
             fit, span = rec[phase], spans.get((lane, model, phase))
             if not fit or not span:
                 continue
-            base = {k: rec[k] for k in ("lane", "dev_class", "machine", "model",
-                                        "quant", "backend")}
-            base |= {"phase": phase, "tokens": span["tokens"],
-                     "kv_fill": span["kv_fill"], "at_width": False,
-                     "r2": fit["r2"], "n_widths": span["n"], "in_domain": True,
-                     "label": None}
+            base = {
+                k: rec[k] for k in ("lane", "dev_class", "machine", "model", "quant", "backend")
+            }
+            base |= {
+                "phase": phase,
+                "tokens": span["tokens"],
+                "kv_fill": span["kv_fill"],
+                "at_width": False,
+                "r2": fit["r2"],
+                "n_widths": span["n"],
+                "in_domain": True,
+                "label": None,
+            }
             widest = span["widest"]
             for i in range(THREAD_FIT_SAMPLES + 1):
                 threads = 1 + (widest - 1) * i / THREAD_FIT_SAMPLES
-                rows.append({**base, "kind": "fit", "threads": round(threads, 3),
-                             "value": round(_thread_curve(phase, fit, threads), 2)})
+                rows.append(
+                    {
+                        **base,
+                        "kind": "fit",
+                        "threads": round(threads, 3),
+                        "value": round(_thread_curve(phase, fit, threads), 2),
+                    }
+                )
             if phase == "decode":
-                rows.append({**base, "kind": "asymptote", "threads": None,
-                             "value": round(fit["rate_max_tps"], 2),
-                             "label": "fitted ceiling, unbounded width"})
+                rows.append(
+                    {
+                        **base,
+                        "kind": "asymptote",
+                        "threads": None,
+                        "value": round(fit["rate_max_tps"], 2),
+                        "label": "fitted ceiling, unbounded width",
+                    }
+                )
                 p90 = fit["p90"]
                 if p90:
                     inside = p90 <= widest
-                    rows.append({
-                        **base, "kind": "p90", "value": None,
-                        "threads": p90 if inside else None, "in_domain": inside,
-                        "label": (f"90% of peak at {p90:g} threads" if inside
-                                  else f"90% of peak above {widest} threads")})
+                    rows.append(
+                        {
+                            **base,
+                            "kind": "p90",
+                            "value": None,
+                            "threads": p90 if inside else None,
+                            "in_domain": inside,
+                            "label": (
+                                f"90% of peak at {p90:g} threads"
+                                if inside
+                                else f"90% of peak above {widest} threads"
+                            ),
+                        }
+                    )
             elif fit["floor_ms"] > 0:
-                rows.append({**base, "kind": "asymptote", "threads": None,
-                             "value": round(fit["floor_ms"], 2),
-                             "label": "fitted floor, no width removes it"})
+                rows.append(
+                    {
+                        **base,
+                        "kind": "asymptote",
+                        "threads": None,
+                        "value": round(fit["floor_ms"], 2),
+                        "label": "fitted floor, no width removes it",
+                    }
+                )
     return rows
 
 
-def _thread_scalar_rows(fits: dict[tuple[str, str], dict],
-                        spans: dict[tuple[str, str, str], dict]) -> list[dict]:
+def _thread_scalar_rows(
+    fits: dict[tuple[str, str], dict], spans: dict[tuple[str, str, str], dict]
+) -> list[dict]:
     """The headline numbers behind the two charts, one row per (lane, model).
 
     The width the lane runs is the one in its label; the 90%-of-peak width is where
@@ -1658,16 +2159,21 @@ def _thread_scalar_rows(fits: dict[tuple[str, str], dict],
     rows = []
     for (lane, model), rec in sorted(fits.items()):
         pre, dec = rec["prefill"], rec["decode"]
-        counts = [spans[(lane, model, phase)]["n"]
-                  for phase in ("prefill", "decode")
-                  if (lane, model, phase) in spans]
+        counts = [
+            spans[(lane, model, phase)]["n"]
+            for phase in ("prefill", "decode")
+            if (lane, model, phase) in spans
+        ]
         if not counts:
             continue
         widths = [int(f["width"]) for f in (pre, dec) if f and f["width"]]
         width = "—"
         if widths:
-            width = (f"{widths[0]}" if len(set(widths)) == 1
-                     else f"{widths[0]} prompt / {widths[-1]} generation")
+            width = (
+                f"{widths[0]}"
+                if len(set(widths)) == 1
+                else f"{widths[0]} prompt / {widths[-1]} generation"
+            )
         p90 = "—"
         if dec and dec["p90"]:
             widest = spans.get((lane, model, "decode"), {}).get("widest", 0)
@@ -1675,16 +2181,20 @@ def _thread_scalar_rows(fits: dict[tuple[str, str], dict],
             p90 = f"{dec['p90']:g} threads{past}"
         floor = "—"
         if pre:
-            floor = (f"{pre['floor_pct']:g}%" if pre["floor_ms"] > 0
-                     else "no measurable floor")
-        r2 = " / ".join(f"{f['r2']:.4f}" if f and f["r2"] is not None else "—"
-                        for f in (pre, dec))
-        rows.append({
-            "lane": lane, "model": model, "width": width, "p90": p90,
-            "ceiling": f"{dec['rate_max_tps']:.1f} tok/s" if dec else "—",
-            "floor": floor, "r2": r2,
-            "note": "two widths only" if min(counts) < 3 else "—",
-        })
+            floor = f"{pre['floor_pct']:g}%" if pre["floor_ms"] > 0 else "no measurable floor"
+        r2 = " / ".join(f"{f['r2']:.4f}" if f and f["r2"] is not None else "—" for f in (pre, dec))
+        rows.append(
+            {
+                "lane": lane,
+                "model": model,
+                "width": width,
+                "p90": p90,
+                "ceiling": f"{dec['rate_max_tps']:.1f} tok/s" if dec else "—",
+                "floor": floor,
+                "r2": r2,
+                "note": "two widths only" if min(counts) < 3 else "—",
+            }
+        )
     return rows
 
 
@@ -1703,8 +2213,16 @@ def _thread_tooltip(value_title: str, *, fill: bool) -> list[dict]:
     ]
 
 
-def _thread_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
-                 title: str, subtitle: str, y_title: str, value_title: str) -> dict:
+def _thread_spec(
+    rows: list[dict],
+    lanes: list[str],
+    controls: list[dict],
+    *,
+    title: str,
+    subtitle: str,
+    y_title: str,
+    value_title: str,
+) -> dict:
     """One phase's thread ladder: the measured widths as dots, the harness's fit as
     the line through them, and the fit's asymptote as a dashed line.
 
@@ -1717,71 +2235,97 @@ def _thread_spec(rows: list[dict], lanes: list[str], controls: list[dict], *,
     same controls, because it is the same lanes seen from a different axis. Unlike
     the task grid this chart's data is built here: the domains are fixed by the
     measurement, so nothing has to be inserted at view time."""
-    x = {"field": "threads", "type": "quantitative", "title": "intra-op threads",
-         # Threads are counted, so the axis steps in whole ones — and it starts at
-         # one thread rather than zero, which is not a width anything can run.
-         "scale": {"zero": False, "nice": False}, "axis": {"tickMinStep": 1}}
-    y = {"field": "value", "type": "quantitative", "title": y_title,
-         "scale": {"zero": True}}
-    color = {"field": "lane", "scale": _lane_scale(lanes, LANE_COLORS),
-             "legend": {"orient": "bottom", "columns": 2, "title": None}}
+    x = {
+        "field": "threads",
+        "type": "quantitative",
+        "title": "intra-op threads",
+        # Threads are counted, so the axis steps in whole ones — and it starts at
+        # one thread rather than zero, which is not a width anything can run.
+        "scale": {"zero": False, "nice": False},
+        "axis": {"tickMinStep": 1},
+    }
+    y = {"field": "value", "type": "quantitative", "title": y_title, "scale": {"zero": True}}
+    color = {
+        "field": "lane",
+        "scale": _lane_scale(lanes, LANE_COLORS),
+        "legend": {"orient": "bottom", "columns": 2, "title": None},
+    }
     # Points answer with their own measurement; the two dashed lines answer with what
     # they are, which is a fitted parameter and not a measured width at all.
-    tooltip = _thread_tooltip(
-        value_title, fill=any(r.get("kv_fill") is not None for r in rows))
+    tooltip = _thread_tooltip(value_title, fill=any(r.get("kv_fill") is not None for r in rows))
     fitted = [{"field": "label", "title": "line"}, {"field": "value", "title": value_title}]
-    reached = [{"field": "label", "title": "line"},
-               {"field": "threads", "title": "intra-op threads"}]
+    reached = [
+        {"field": "label", "title": "line"},
+        {"field": "threads", "title": "intra-op threads"},
+    ]
     # The rule this labels is vertical, so it has no y of its own to sit at: the text
     # is placed in pixels, at the foot of the rule. The foot rather than the head
     # because the head is where a saturating fit's own ceiling line runs.
-    label = {"type": "text", "align": "left", "dx": 4, "fontSize": 9,
-             "baseline": "bottom"}
+    label = {"type": "text", "align": "left", "dx": 4, "fontSize": 9, "baseline": "bottom"}
     label_y = {"value": 214}  # just clear of the axis, in a 220-tall plot
     return {
         "$schema": VL_SCHEMA,
-        "title": {"text": title, "anchor": "start", "subtitle": subtitle,
-                  "fontSize": 12, "subtitleFontSize": 10},
+        "title": {
+            "text": title,
+            "anchor": "start",
+            "subtitle": subtitle,
+            "fontSize": 12,
+            "subtitleFontSize": 10,
+        },
         "data": {"values": rows},
         "params": _params(controls),
         "transform": _filters(controls),
-        "width": 400, "height": 220,
+        "width": 400,
+        "height": 220,
         "layer": [
             # The fitted parameter as a line across the chart: prefill's floor, the
             # part of a chunk no width removes; decode's ceiling, the rate an
             # unbounded width would approach.
-            {"transform": [{"filter": "datum.kind === 'asymptote'"}],
-             "mark": {"type": "rule", "strokeDash": [4, 3], "strokeWidth": 1.5,
-                      "opacity": 0.55},
-             "encoding": {"y": y, "color": color, "tooltip": fitted}},
-            {"transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
-             "mark": {"type": "rule", "strokeDash": [2, 3], "strokeWidth": 1.5,
-                      "opacity": 0.55},
-             "encoding": {"x": x, "color": color, "tooltip": reached}},
-            {"transform": [{"filter": "datum.kind === 'fit'"}],
-             "mark": {"type": "line", "strokeWidth": 2},
-             "encoding": {"x": x, "y": y, "color": color}},
-            {"transform": [{"filter": "datum.kind === 'point'"}],
-             "mark": {"type": "point", "filled": True, "size": 55},
-             "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip}},
+            {
+                "transform": [{"filter": "datum.kind === 'asymptote'"}],
+                "mark": {"type": "rule", "strokeDash": [4, 3], "strokeWidth": 1.5, "opacity": 0.55},
+                "encoding": {"y": y, "color": color, "tooltip": fitted},
+            },
+            {
+                "transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+                "mark": {"type": "rule", "strokeDash": [2, 3], "strokeWidth": 1.5, "opacity": 0.55},
+                "encoding": {"x": x, "color": color, "tooltip": reached},
+            },
+            {
+                "transform": [{"filter": "datum.kind === 'fit'"}],
+                "mark": {"type": "line", "strokeWidth": 2},
+                "encoding": {"x": x, "y": y, "color": color},
+            },
+            {
+                "transform": [{"filter": "datum.kind === 'point'"}],
+                "mark": {"type": "point", "filled": True, "size": 55},
+                "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip},
+            },
             # The operating point, ringed: the width this lane's runs are measured at
             # everywhere else on the page.
-            {"transform": [{"filter": "datum.kind === 'point' && datum.at_width"}],
-             "mark": {"type": "point", "filled": False, "size": 110,
-                      "strokeWidth": 2},
-             "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip}},
-            {"transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
-             "mark": label,
-             "encoding": {"x": x, "y": label_y, "color": color,
-                          "text": {"field": "label"}}},
+            {
+                "transform": [{"filter": "datum.kind === 'point' && datum.at_width"}],
+                "mark": {"type": "point", "filled": False, "size": 110, "strokeWidth": 2},
+                "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip},
+            },
+            {
+                "transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+                "mark": label,
+                "encoding": {"x": x, "y": label_y, "color": color, "text": {"field": "label"}},
+            },
             # A 90%-of-peak width above every width measured has no rule to name: a
             # rule there would stretch the x scale to reach itself, so the fact goes
             # to the left edge as text.
-            {"transform": [{"filter": "datum.kind === 'p90' && !datum.in_domain"}],
-             "mark": {**label, "fontStyle": "italic"},
-             "encoding": {"x": {"datum": 1, "type": "quantitative"},
-                          "y": label_y, "color": color,
-                          "text": {"field": "label"}}},
+            {
+                "transform": [{"filter": "datum.kind === 'p90' && !datum.in_domain"}],
+                "mark": {**label, "fontStyle": "italic"},
+                "encoding": {
+                    "x": {"datum": 1, "type": "quantitative"},
+                    "y": label_y,
+                    "color": color,
+                    "text": {"field": "label"},
+                },
+            },
         ],
         "config": {"view": {"stroke": None}},
     }
@@ -1806,9 +2350,11 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         ok = df[df.status == "ok"]
         lanes = _lane_order(df)
         # Open on the model the most lanes could measure — the widest comparison.
-        default_model = (ok.groupby("model").lane.nunique()
-                         .sort_values(ascending=False).index[0] if len(ok)
-                         else sorted(df.model.dropna().unique())[0])
+        default_model = (
+            ok.groupby("model").lane.nunique().sort_values(ascending=False).index[0]
+            if len(ok)
+            else sorted(df.model.dropna().unique())[0]
+        )
         sweeps = _with_lanes(load_sweeps(published))
         grid_rows = _grid_rows(df, _depth_ranges(sweeps))
         controls = _controls(grid_rows, default_model)
@@ -1833,15 +2379,26 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         if len(pre):
             pre["single"] = _single_depth(pre)
             specs["curve-ttft"] = _curve_spec(
-                pre[[*keep, "tokens", "ttft_ms"]].to_dict("records"), lanes, controls,
-                x="tokens", y="ttft_ms",
-                x_title="prompt tokens", y_title="time to first token (ms)")
+                pre[[*keep, "tokens", "ttft_ms"]].to_dict("records"),
+                lanes,
+                controls,
+                x="tokens",
+                y="ttft_ms",
+                x_title="prompt tokens",
+                y_title="time to first token (ms)",
+            )
         if len(dec):
             dec["single"] = _single_depth(dec)
             specs["curve-decode"] = _curve_spec(
-                dec[[*keep, "kv_fill", "tps_p50"]].to_dict("records"), lanes, controls,
-                x="kv_fill", y="tps_p50", log_y=True,
-                x_title="context already used (tokens)", y_title="tok/s")
+                dec[[*keep, "kv_fill", "tps_p50"]].to_dict("records"),
+                lanes,
+                controls,
+                x="kv_fill",
+                y="tps_p50",
+                log_y=True,
+                x_title="context already used (tokens)",
+                y_title="tok/s",
+            )
         context["curves"] = [sid for sid in ("curve-ttft", "curve-decode") if sid in specs]
 
         # An empty frame has no columns for `_with_lanes` to read, and a shelf whose
@@ -1855,8 +2412,7 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         job_memory_rows = _job_memory_rows(ok, mem)
         if job_memory_rows:
             specs["memory-job"] = _job_memory_spec(job_memory_rows, lanes, controls)
-        context["memory"] = [sid for sid in ("memory-footprint", "memory-job")
-                             if sid in specs]
+        context["memory"] = [sid for sid in ("memory-footprint", "memory-job") if sid in specs]
 
         # The thread ladder is optional measurement: CPU lanes only, and only from
         # submissions new enough to carry it. An empty frame has no columns for
@@ -1873,13 +2429,19 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
                 if not any(r["kind"] == "point" for r in drawn):
                     continue  # a phase the ladder never reached draws nothing
                 units = {r["tokens"] for r in drawn}
-                y_title = (phase["y_title"].format(n=units.pop()) if len(units) == 1
-                           else phase["y_plain"])
+                y_title = (
+                    phase["y_title"].format(n=units.pop()) if len(units) == 1 else phase["y_plain"]
+                )
                 sid = f"thread-{phase['phase']}"
                 specs[sid] = _thread_spec(
-                    drawn, lanes, controls, title=phase["title"],
-                    subtitle=phase["subtitle"], y_title=y_title,
-                    value_title=phase["value_title"])
+                    drawn,
+                    lanes,
+                    controls,
+                    title=phase["title"],
+                    subtitle=phase["subtitle"],
+                    y_title=y_title,
+                    value_title=phase["value_title"],
+                )
                 thread_ids.append(sid)
             context["thread_scalars"] = _thread_scalar_rows(fits, spans)
         context["threads"] = thread_ids
@@ -1889,55 +2451,98 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         for lane_label, g in probes[probes.status == "ok"].groupby("lane"):
             gemm = g[g.kind == "gemm"].tflops.max()
             d2d = g[g.kind == "d2d"].gbs.max()
-            ceilings.append({"lane": lane_label,
-                             "gemm": f"{gemm:.1f}" if gemm == gemm else "—",
-                             "d2d": f"{d2d:.0f}" if d2d == d2d else "—"})
+            ceilings.append(
+                {
+                    "lane": lane_label,
+                    "gemm": f"{gemm:.1f}" if gemm == gemm else "—",
+                    "d2d": f"{d2d:.0f}" if d2d == d2d else "—",
+                }
+            )
         context["ceilings"] = sorted(ceilings, key=lambda c: c["lane"])
 
         # The GPU column is what the lanes actually ran on: an iGPU is invisible to
         # the machine block's NVML/system_profiler probe, but its lane reports it.
-        gpus = {m: ", ".join(sorted({d for d, f in zip(g.device, g.family, strict=True)
-                                     if f != "cpu"}))
-                for m, g in df.groupby("machine")}
+        gpus = {
+            m: ", ".join(sorted({d for d, f in zip(g.device, g.family, strict=True) if f != "cpu"}))
+            for m, g in df.groupby("machine")
+        }
         context["machines"] = [
-            {"machine": r.machine, "cpu": r.cpu, "gpu": gpus.get(r.machine) or "—",
-             "ram": f"{r.ram_gb:g} GB" if r.ram_gb == r.ram_gb else "?"}
+            {
+                "machine": r.machine,
+                "cpu": r.cpu,
+                "gpu": gpus.get(r.machine) or "—",
+                "ram": f"{r.ram_gb:g} GB" if r.ram_gb == r.ram_gb else "?",
+            }
             for r in df.drop_duplicates("machine").itertuples()
         ]
         bad = df[df.status != "ok"]
         context["unusable"] = [
-            {"lane": r.lane, "machine": r.machine, "model": r.model,
-             "quant": r.quant, "status": str(r.status).replace("_", " ")}
+            {
+                "lane": r.lane,
+                "machine": r.machine,
+                "model": r.model,
+                "quant": r.quant,
+                "status": str(r.status).replace("_", " "),
+            }
             for r in bad.itertuples()
         ]
-        with_text = (ok[ok.sample_completion.notna()]
-                     .groupby("model", observed=True).head(1))
+        with_text = ok[ok.sample_completion.notna()].groupby("model", observed=True).head(1)
         context["completions"] = [
-            {"who": f"{r.machine} · {r.model} {r.quant} · {r.lane}",
-             "text": str(r.sample_completion).strip()}
+            {
+                "who": f"{r.machine} · {r.model} {r.quant} · {r.lane}",
+                "text": str(r.sample_completion).strip(),
+            }
             for r in with_text.itertuples()
         ]
         # One fold, four panels: the reference tables the charts stand on. Only the
         # ones this shelf can fill are offered; machines is always among them.
         context["tabs"] = [
-            {"id": "machines", "label": f"Machines ({len(context['machines'])})",
-             "hint": "machines",
-             "about": "What each submission ran on. The GPU column is what the lanes "
-                      "reported, which is the only place an iGPU shows up."},
-            *([{"id": "ceilings", "label": "Device ceilings", "hint": "ceilings",
-                "about": "Bare probes with no model loaded: f16 GEMM and on-device "
-                         "copies, the roof the inference numbers sit under."}]
-              if context["ceilings"] else []),
-            *([{"id": "unusable",
-                "label": f"Unmeasurable cells ({len(context['unusable'])})",
-                "hint": "unmeasurable cells",
-                "about": "Attempted and produced no timing: killed by the backstop, "
-                         "below the usable tok/s floor, or failed the brain-check."}]
-              if context["unusable"] else []),
-            *([{"id": "samples", "label": "Output samples", "hint": "output samples",
-                "about": "One completion per model, decoded during the measured run "
-                         "— the numbers came from a model that was working."}]
-              if context["completions"] else []),
+            {
+                "id": "machines",
+                "label": f"Machines ({len(context['machines'])})",
+                "hint": "machines",
+                "about": "What each submission ran on. The GPU column is what the lanes "
+                "reported, which is the only place an iGPU shows up.",
+            },
+            *(
+                [
+                    {
+                        "id": "ceilings",
+                        "label": "Device ceilings",
+                        "hint": "ceilings",
+                        "about": "Bare probes with no model loaded: f16 GEMM and on-device "
+                        "copies, the roof the inference numbers sit under.",
+                    }
+                ]
+                if context["ceilings"]
+                else []
+            ),
+            *(
+                [
+                    {
+                        "id": "unusable",
+                        "label": f"Unmeasurable cells ({len(context['unusable'])})",
+                        "hint": "unmeasurable cells",
+                        "about": "Attempted and produced no timing: killed by the backstop, "
+                        "below the usable tok/s floor, or failed the brain-check.",
+                    }
+                ]
+                if context["unusable"]
+                else []
+            ),
+            *(
+                [
+                    {
+                        "id": "samples",
+                        "label": "Output samples",
+                        "hint": "output samples",
+                        "about": "One completion per model, decoded during the measured run "
+                        "— the numbers came from a model that was working.",
+                    }
+                ]
+                if context["completions"]
+                else []
+            ),
         ]
         context["stats"] = [
             {"v": f"{df.machine.nunique()}", "k": "machines"},
@@ -1945,8 +2550,9 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
             {"v": f"{ok.lane.nunique()}", "k": "lanes"},
         ]
 
-    env = Environment(loader=PackageLoader("bench_analysis"),
-                      autoescape=select_autoescape(default=True))
+    env = Environment(
+        loader=PackageLoader("bench_analysis"), autoescape=select_autoescape(default=True)
+    )
     context["css"] = (PKG / "assets" / "report.css").read_text()
     context["tasks_js"] = (PKG / "assets" / "tasks.js").read_text()
     context["report_js"] = (PKG / "assets" / "report.js").read_text()

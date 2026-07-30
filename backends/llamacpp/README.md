@@ -35,7 +35,10 @@ short: drop a patch as soon as the pin moves past it. A patch is applied at
 populate time only — delete the build directory to re-patch — and only to the
 *fetched* tree, never to a `LLAMACPP_SOURCE_DIR` working copy.
 
-Format with `clang-format -i main.cpp`. Validate conformance from the repo
+Format with `clang-format -i main.cpp`, run from this directory so
+[`.clang-format`](.clang-format) is the config that applies — it resolves
+relative to the file, and pointing the tool at a copy somewhere else silently
+reformats to LLVM defaults at 80 columns instead. Validate conformance from the repo
 root: `uv run --project harness bench check --backend llamacpp --models models`.
 
 ## Contract notes specific to llama.cpp

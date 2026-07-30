@@ -50,7 +50,10 @@ def test_round_trip_lands_with_host_scrubbed(tmp_path):
 
     dest = published / "test-box"
     assert sorted(p.name for p in dest.iterdir()) == [
-        "README.md", "llamacpp-raw.json.gz", "llamacpp-results.json"]
+        "README.md",
+        "llamacpp-raw.json.gz",
+        "llamacpp-results.json",
+    ]
     results = json.loads((dest / "llamacpp-results.json").read_text())
     assert results["machine"]["host"] == "test-box"  # no hostname leaves the machine
     raw = json.loads(gzip.decompress((dest / "llamacpp-raw.json.gz").read_bytes()))
@@ -79,14 +82,21 @@ def test_force_replaces_the_submission_wholesale(tmp_path):
 
 
 def test_submission_name_drops_vendor_noise():
-    assert submission_name({"cpu": "AMD Ryzen 9 9950X 16-Core Processor",
-                            "gpus": ["NVIDIA GeForce RTX 5080"]}) == "ryzen-9-9950x-rtx-5080"
-    assert submission_name({"cpu": "Intel(R) Core(TM) Ultra 5 125U",
-                            "gpus": []}) == "core-ultra-5-125u"
-    assert submission_name({"cpu": "AMD Ryzen 7 255",
-                            "gpus": ["AMD Radeon 780M Graphics"]}) == "ryzen-7-255-radeon-780m"
-    assert submission_name({"cpu": "Apple M5 Pro",
-                            "gpus": ["Apple M5 Pro"]}) == "apple-m5-pro"
+    assert (
+        submission_name(
+            {"cpu": "AMD Ryzen 9 9950X 16-Core Processor", "gpus": ["NVIDIA GeForce RTX 5080"]}
+        )
+        == "ryzen-9-9950x-rtx-5080"
+    )
+    assert (
+        submission_name({"cpu": "Intel(R) Core(TM) Ultra 5 125U", "gpus": []})
+        == "core-ultra-5-125u"
+    )
+    assert (
+        submission_name({"cpu": "AMD Ryzen 7 255", "gpus": ["AMD Radeon 780M Graphics"]})
+        == "ryzen-7-255-radeon-780m"
+    )
+    assert submission_name({"cpu": "Apple M5 Pro", "gpus": ["Apple M5 Pro"]}) == "apple-m5-pro"
     assert submission_name({"cpu": "", "gpus": []}) == "unknown-machine"
 
 
@@ -102,10 +112,16 @@ def test_submission_name_says_the_machine_once():
     submissions actually carry — an integrated lane names silicon the CPU string
     already has, or names no model at all, and either way the name is the CPU's."""
     for cpu, device, expected in [
-        ("AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics", "AMD Radeon 760M Graphics",
-         "ryzen-5-pro-230"),
-        ("AMD Ryzen 7 255 w/ Radeon 780M Graphics", "AMD Radeon Graphics (RADV PHOENIX)",
-         "ryzen-7-255"),
+        (
+            "AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics",
+            "AMD Radeon 760M Graphics",
+            "ryzen-5-pro-230",
+        ),
+        (
+            "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+            "AMD Radeon Graphics (RADV PHOENIX)",
+            "ryzen-7-255",
+        ),
         ("Intel(R) Core(TM) Ultra 5 125U", "Intel(R) Graphics (MTL)", "core-ultra-5-125u"),
         ("Apple M5 Pro", "Apple M5 Pro", "apple-m5-pro"),
     ]:
@@ -114,8 +130,10 @@ def test_submission_name_says_the_machine_once():
 
 def test_gpu_devices_ignores_cpu_lanes():
     doc = {
-        "probes": [{"provider": "cpu:0", "device": "AMD Ryzen 5 PRO 230  "},
-                   {"provider": "vulkan:0", "device": "AMD Radeon 760M Graphics"}],
+        "probes": [
+            {"provider": "cpu:0", "device": "AMD Ryzen 5 PRO 230  "},
+            {"provider": "vulkan:0", "device": "AMD Radeon 760M Graphics"},
+        ],
         "runs": [{"provider": "vulkan:0", "device": "AMD Radeon 760M Graphics"}],
     }
     assert gpu_devices(doc) == ["AMD Radeon 760M Graphics"]

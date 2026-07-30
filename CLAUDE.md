@@ -72,6 +72,19 @@ A backend that doesn't pass is not done.
   when asked.
 - Python (`harness/`, `analysis/`) are **uv** projects: run with
   `uv run --project <dir>`, add deps in `pyproject.toml` and commit the updated
-  `uv.lock`, lint/format with `ruff`.
+  `uv.lock`.
+- **Formatting is not optional, and it is never yours to skip.** Before every
+  commit, on both projects and the backend:
+
+      uv run --project harness ruff format harness && uv run --project harness ruff check harness
+      uv run --project analysis ruff format analysis && uv run --project analysis ruff check analysis
+      (cd backends/llamacpp && clang-format -i main.cpp)
+
+  100 columns everywhere — `[tool.ruff] line-length` and `.clang-format`
+  `ColumnLimit` agree, keep them that way. Run the formatter *first*, then read
+  the diff: if it reflows files you never touched, the tree had drifted, so land
+  that as its own `chore(format):` commit rather than burying your change in it
+  or — the wrong answer — reverting the formatter and leaving the drift. Do not
+  hand-format around a tool, and do not describe formatting as out of scope.
 - Docs and comments state **what is** — no history-telling about what was removed
   or used to exist. One README per folder is the documentation budget.

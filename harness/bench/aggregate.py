@@ -143,21 +143,47 @@ def probe_result(provider: str, trace: Trace) -> dict:
     for on-device traffic)."""
     ev = trace["events"]
     if not ev:
-        return {"provider": provider, "device": "unknown", "status": "errored",
-                "threads": None, "gemm": [], "copy": []}
+        return {
+            "provider": provider,
+            "device": "unknown",
+            "status": "errored",
+            "threads": None,
+            "gemm": [],
+            "copy": [],
+        }
     gemm = []
     for g in ev["gemm"]:
         tflops = [2 * g["m"] * g["n"] * g["k"] / s / 1e12 for s in _repeat_seconds(g["repeats"])]
-        gemm.append({"m": g["m"], "n": g["n"], "k": g["k"], "dtype": g["dtype"],
-                     "tflops_p50": round(median(tflops), 2), "n_reps": len(tflops)})
+        gemm.append(
+            {
+                "m": g["m"],
+                "n": g["n"],
+                "k": g["k"],
+                "dtype": g["dtype"],
+                "tflops_p50": round(median(tflops), 2),
+                "n_reps": len(tflops),
+            }
+        )
     copy = []
     for c in ev["copy"]:
         traffic = c["bytes"] * (2 if c["kind"] == "d2d" else 1)
         gbs = [traffic / s / 1e9 for s in _repeat_seconds(c["repeats"])]
-        copy.append({"kind": c["kind"], "bytes": c["bytes"],
-                     "gbs_p50": round(median(gbs), 2), "n_reps": len(gbs)})
-    return {"provider": provider, "device": ev["device"], "status": "ok",
-            "threads": _threads([trace]), "gemm": gemm, "copy": copy}
+        copy.append(
+            {
+                "kind": c["kind"],
+                "bytes": c["bytes"],
+                "gbs_p50": round(median(gbs), 2),
+                "n_reps": len(gbs),
+            }
+        )
+    return {
+        "provider": provider,
+        "device": ev["device"],
+        "status": "ok",
+        "threads": _threads([trace]),
+        "gemm": gemm,
+        "copy": copy,
+    }
 
 
 # ── sweeps ────────────────────────────────────────────────────────────────────
@@ -188,15 +214,26 @@ def sweep_result(cell_sweep: dict, *, shader_cache: str, shader_bytes: int | Non
     warmup_ms = None
     if ev:
         for p in ev["prefill_chunks"]:
-            prefill.append({"context": p["context_size"], "tokens": p["tokens_count"],
-                            "ms": round((p["end_ns"] - p["start_ns"]) / NS_PER_MS, 2)})
+            prefill.append(
+                {
+                    "context": p["context_size"],
+                    "tokens": p["tokens_count"],
+                    "ms": round((p["end_ns"] - p["start_ns"]) / NS_PER_MS, 2),
+                }
+            )
         for d in ev["decode_points"]:
             tps = [
                 (len(r["token_ns"]) - 1) / ((r["token_ns"][-1] - r["token_ns"][0]) / NS_PER_S)
                 for r in d["repeats"]
             ]
-            decode.append({"kv_fill": d["kv_fill"], "tokens": d["tokens"],
-                           **_spread(tps, "tps"), "n_reps": len(tps)})
+            decode.append(
+                {
+                    "kv_fill": d["kv_fill"],
+                    "tokens": d["tokens"],
+                    **_spread(tps, "tps"),
+                    "n_reps": len(tps),
+                }
+            )
         warmup_ms = round(metrics.load_components(ev)["warmup_ms"], 2)
     return {
         "status": cell_sweep["status"],
@@ -226,13 +263,25 @@ def _thread_scaling(ev: dict | None) -> dict | None:
     for p in ev.get("thread_prefill") or []:
         chunk = p["prefill"]
         ms = round((chunk["end_ns"] - chunk["start_ns"]) / NS_PER_MS, 2)
-        prefill.append({"threads": p["threads"], "tokens": chunk["tokens_count"], "ms": ms,
-                        "tps": round(chunk["tokens_count"] / (ms / 1e3), 2) if ms else None})
+        prefill.append(
+            {
+                "threads": p["threads"],
+                "tokens": chunk["tokens_count"],
+                "ms": ms,
+                "tps": round(chunk["tokens_count"] / (ms / 1e3), 2) if ms else None,
+            }
+        )
     for p in ev.get("thread_decode") or []:
         stamps = p["decode"]["token_ns"]
         tps = (len(stamps) - 1) / ((stamps[-1] - stamps[0]) / NS_PER_S)
-        decode.append({"threads": p["threads"], "kv_fill": p["kv_fill"],
-                       "tokens": len(stamps), "tps": round(tps, 2)})
+        decode.append(
+            {
+                "threads": p["threads"],
+                "kv_fill": p["kv_fill"],
+                "tokens": len(stamps),
+                "tps": round(tps, 2),
+            }
+        )
     if not prefill and not decode:
         return None
     return {
@@ -310,8 +359,9 @@ def job_result(cell_job: dict, *, method: str, cold_start_ms: float | None) -> d
     too-slow or errored job keeps its status and task name, nothing invented."""
     out = {"status": cell_job["status"], "task": cell_job["task"]}
     if cell_job["status"] == "ok":
-        tr = task_result(cell_job["task"], cell_job["spawns"], method=method,
-                         cold_start_ms=cold_start_ms)
+        tr = task_result(
+            cell_job["task"], cell_job["spawns"], method=method, cold_start_ms=cold_start_ms
+        )
         out["metrics"] = tr["metrics"]
         out["memory"] = tr["memory"]
         out["sample_completions"] = tr["sample_completions"]
@@ -348,8 +398,9 @@ def _run_from_cell(cell: dict, sources: dict) -> dict:
         "vram_method": method,
         "threads": _threads(all_traces),
         "geometry": _geometry(sweep_traces + cell["job"]["spawns"]),
-        "sweep": sweep_result(cell["sweep"], shader_cache=cell["shader_cache"],
-                              shader_bytes=cell["shader_bytes"]),
+        "sweep": sweep_result(
+            cell["sweep"], shader_cache=cell["shader_cache"], shader_bytes=cell["shader_bytes"]
+        ),
         "job": job_result(cell["job"], method=method, cold_start_ms=cell.get("cold_ms")),
     }
     if not cell["healthy"] and cell.get("reason"):

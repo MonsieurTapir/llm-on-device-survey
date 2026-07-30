@@ -208,8 +208,9 @@ def load_results(root: str | Path = "results") -> pd.DataFrame:
             _thread_scaling(row, run["sweep"].get("thread_scaling"))
             # Dispatch-width sensitivity, worst of the measured depths: how much
             # this silicon minds a narrower micro-batch.
-            penalties = [u["penalty_pct"] for u in run["sweep"]["ubatch"]
-                         if u["penalty_pct"] is not None]
+            penalties = [
+                u["penalty_pct"] for u in run["sweep"]["ubatch"] if u["penalty_pct"] is not None
+            ]
             row["ubatch_penalty_pct_max"] = max(penalties) if penalties else None
             # First-launch pipeline compilation (see the schema: only comparable
             # across machines when shader_cache is "redirected").
@@ -235,20 +236,38 @@ def load_sweeps(root: str | Path = "results") -> pd.DataFrame:
     rows: list[dict] = []
     for base, doc in _docs(root):
         for run in doc["runs"]:
-            run_base = {**base, **{k: run[k] for k in _RUN_KEYS},
-                        "sweep_status": run["sweep"]["status"]}
+            run_base = {
+                **base,
+                **{k: run[k] for k in _RUN_KEYS},
+                "sweep_status": run["sweep"]["status"],
+            }
             _threads(run_base, run["threads"])
             cum = 0.0
             for p in run["sweep"]["prefill"]:
                 cum += p["ms"]
-                rows.append({**run_base, "kind": "prefill",
-                             "tokens": p["context"] + p["tokens"], "kv_fill": None,
-                             "chunk_ms": p["ms"], "ttft_ms": round(cum, 2)})
+                rows.append(
+                    {
+                        **run_base,
+                        "kind": "prefill",
+                        "tokens": p["context"] + p["tokens"],
+                        "kv_fill": None,
+                        "chunk_ms": p["ms"],
+                        "ttft_ms": round(cum, 2),
+                    }
+                )
             for p in run["sweep"]["decode"]:
-                rows.append({**run_base, "kind": "decode", "tokens": p["tokens"],
-                             "kv_fill": p["kv_fill"], "tps_p50": p["tps_p50"],
-                             "tps_min": p["tps_min"], "tps_max": p["tps_max"],
-                             "n_reps": p["n_reps"]})
+                rows.append(
+                    {
+                        **run_base,
+                        "kind": "decode",
+                        "tokens": p["tokens"],
+                        "kv_fill": p["kv_fill"],
+                        "tps_p50": p["tps_p50"],
+                        "tps_min": p["tps_min"],
+                        "tps_max": p["tps_max"],
+                        "n_reps": p["n_reps"],
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -264,11 +283,15 @@ def load_memory(root: str | Path = "results") -> pd.DataFrame:
             _threads(run_base, run["threads"])
             for p in (run.get("geometry") or {}).get("memory_points") or []:
                 b = p["buffers"]
-                rows.append({**run_base,
-                             "n_ctx": p["n_ctx"],
-                             "weights_mb": round(sum(x["model_bytes"] for x in b) / 1e6, 1),
-                             "kv_mb": round(sum(x["context_bytes"] for x in b) / 1e6, 1),
-                             "compute_mb": round(sum(x["compute_bytes"] for x in b) / 1e6, 1)})
+                rows.append(
+                    {
+                        **run_base,
+                        "n_ctx": p["n_ctx"],
+                        "weights_mb": round(sum(x["model_bytes"] for x in b) / 1e6, 1),
+                        "kv_mb": round(sum(x["context_bytes"] for x in b) / 1e6, 1),
+                        "compute_mb": round(sum(x["compute_bytes"] for x in b) / 1e6, 1),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -294,10 +317,17 @@ def load_thread_scaling(root: str | Path = "results") -> pd.DataFrame:
             _threads(run_base, run["threads"])
             for phase in ("prefill", "decode"):
                 for p in (scaling.get(phase) or {}).get("points") or []:
-                    rows.append({**run_base, "phase": phase, "threads": p["threads"],
-                                 "tokens": p["tokens"], "tps": p["tps"],
-                                 "kv_fill": p.get("kv_fill"),
-                                 "ms": p.get("ms")})
+                    rows.append(
+                        {
+                            **run_base,
+                            "phase": phase,
+                            "threads": p["threads"],
+                            "tokens": p["tokens"],
+                            "tps": p["tps"],
+                            "kv_fill": p.get("kv_fill"),
+                            "ms": p.get("ms"),
+                        }
+                    )
     return pd.DataFrame(rows)
 
 
@@ -306,15 +336,39 @@ def load_probes(root: str | Path = "results") -> pd.DataFrame:
     rows: list[dict] = []
     for base, doc in _docs(root):
         for probe in doc.get("probes") or []:
-            probe_base = {**base, "provider": probe["provider"], "device": probe["device"],
-                          "status": probe["status"]}
+            probe_base = {
+                **base,
+                "provider": probe["provider"],
+                "device": probe["device"],
+                "status": probe["status"],
+            }
             _threads(probe_base, probe["threads"])
             for g in probe["gemm"]:
-                rows.append({**probe_base, "kind": "gemm", "m": g["m"], "n": g["n"],
-                             "k": g["k"], "dtype": g["dtype"], "tflops": g["tflops_p50"],
-                             "gbs": None, "n_reps": g["n_reps"]})
+                rows.append(
+                    {
+                        **probe_base,
+                        "kind": "gemm",
+                        "m": g["m"],
+                        "n": g["n"],
+                        "k": g["k"],
+                        "dtype": g["dtype"],
+                        "tflops": g["tflops_p50"],
+                        "gbs": None,
+                        "n_reps": g["n_reps"],
+                    }
+                )
             for c in probe["copy"]:
-                rows.append({**probe_base, "kind": c["kind"], "m": None, "n": None,
-                             "k": None, "dtype": None, "tflops": None,
-                             "gbs": c["gbs_p50"], "n_reps": c["n_reps"]})
+                rows.append(
+                    {
+                        **probe_base,
+                        "kind": c["kind"],
+                        "m": None,
+                        "n": None,
+                        "k": None,
+                        "dtype": None,
+                        "tflops": None,
+                        "gbs": c["gbs_p50"],
+                        "n_reps": c["n_reps"],
+                    }
+                )
     return pd.DataFrame(rows)

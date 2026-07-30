@@ -46,8 +46,11 @@ def _decode_tps(result: spawn.SpawnResult) -> float | None:
 
 def _gate_reason(events: dict) -> str:
     """The unhealthy verdict's evidence: each failed gate turn's decoded text."""
-    turns = [e for e in (events.get("gate") or {}).get("events", [])
-             if e["type"] == "turn-end" and not e["expect_pass"]]
+    turns = [
+        e
+        for e in (events.get("gate") or {}).get("events", [])
+        if e["type"] == "turn-end" and not e["expect_pass"]
+    ]
     if not turns:
         return "expect failed"
     return "; ".join(f"expect failed (got {t['completion'].strip()!r})" for t in turns)
@@ -62,9 +65,17 @@ def _sweep(backend, v, ep, gate: Task, *, cold, deadline_ms, backstop_s, shader_
     `shader_cache` is this cell's own (empty) cache directory, so the spawn pays
     the pipeline compile deterministically into its `warmup` span instead of
     inheriting whatever the machine happens to have compiled before."""
-    s = spawn.sweep(backend.cmd, model_path=v.model_path, quant=v.quant, ep=ep,
-                    gate=gate.spec, cold=cold, deadline_ms=deadline_ms, backstop_s=backstop_s,
-                    shader_cache=shader_cache)
+    s = spawn.sweep(
+        backend.cmd,
+        model_path=v.model_path,
+        quant=v.quant,
+        ep=ep,
+        gate=gate.spec,
+        cold=cold,
+        deadline_ms=deadline_ms,
+        backstop_s=backstop_s,
+        shader_cache=shader_cache,
+    )
     if s.events:
         return ("ok" if s.healthy else "skipped"), s
     return ("too_slow" if s.timed_out else "errored"), s
@@ -81,13 +92,25 @@ def _job(backend, v, ep, task: Task, *, spawns, iters, deadline_ms, backstop_s, 
     launch on a user's machine would."""
     sp: list[spawn.SpawnResult] = []
     for j in range(spawns):
-        s = spawn.run(backend.cmd, model_path=v.model_path, quant=v.quant, ep=ep,
-                      task=task.spec, iters=iters, deadline_ms=deadline_ms,
-                      backstop_s=backstop_s, sample=True, shader_cache=shader_cache)
+        s = spawn.run(
+            backend.cmd,
+            model_path=v.model_path,
+            quant=v.quant,
+            ep=ep,
+            task=task.spec,
+            iters=iters,
+            deadline_ms=deadline_ms,
+            backstop_s=backstop_s,
+            sample=True,
+            shader_cache=shader_cache,
+        )
         sp.append(s)
         d = _decode_tps(s)
-        note = (f"{d:.0f} tok/s" if d
-                else ("⏱ too slow" if s.timed_out else f"<{s.error}>" if s.error else "—"))
+        note = (
+            f"{d:.0f} tok/s"
+            if d
+            else ("⏱ too slow" if s.timed_out else f"<{s.error}>" if s.error else "—")
+        )
         iters_done = len(s.events["iterations"]) if s.events else 0
         tail = f" ({iters_done}/{iters} iters)" if s.truncated else ""
         log(f"    job {task.name} {j + 1}/{spawns}: decode {note}{tail}")
@@ -135,8 +158,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     deadline_ms = args.max_ms or None  # soft per-job-spawn time-box
     backstop_s = args.backstop_ms / 1000  # hard kill floor for one runaway iteration
     sweep_deadline_ms = args.sweep_ms or None
-    sweep_backstop_s = (args.sweep_ms / 1000 + SWEEP_TAIL_S if args.sweep_ms
-                        else SWEEP_HANG_BACKSTOP_S)
+    sweep_backstop_s = (
+        args.sweep_ms / 1000 + SWEEP_TAIL_S if args.sweep_ms else SWEEP_HANG_BACKSTOP_S
+    )
     log(
         f"{len(cells)} cells (gated sweep + job '{job_task.name}' × {args.spawns} spawns); "
         f"probe per provider"
@@ -161,8 +185,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     cache_root = Path(shader_root.name)
     cache_control = spawn.shader_cache_control()
     if cache_control == "unavailable":
-        log("shader cache: not pinnable on this platform — warmup spans reflect "
-            "whatever the OS had already compiled")
+        log(
+            "shader cache: not pinnable on this platform — warmup spans reflect "
+            "whatever the OS had already compiled"
+        )
 
     for idx, (v, ep) in enumerate(cells, 1):
         head = f"[{idx}/{len(cells)}] {v.model} {v.quant} {ep}"
@@ -172,8 +198,12 @@ def cmd_run(args: argparse.Namespace) -> None:
         # 0. one ceiling probe per provider, ahead of its first cell.
         if ep not in probed:
             probed.add(ep)
-            p = spawn.probe(backend.cmd, ep=ep, backstop_s=PROBE_BACKSTOP_S,
-                            shader_cache=cache_root / f"probe-{lane_dir}")
+            p = spawn.probe(
+                backend.cmd,
+                ep=ep,
+                backstop_s=PROBE_BACKSTOP_S,
+                shader_cache=cache_root / f"probe-{lane_dir}",
+            )
             probes.append({"provider": ep, "trace": aggregate.trace_of(p)})
             log(f"probe {ep}: {'ok' if p.events else f'✗ {p.error}'}")
 
@@ -181,10 +211,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         # load first, then measures its points; track the genuine cold first-touch.
         is_cold = v.model_path not in touched
         touched.add(v.model_path)
-        sweep_status, sweep_res = _sweep(backend, v, ep, gate_task, cold=is_cold,
-                                         deadline_ms=sweep_deadline_ms,
-                                         backstop_s=sweep_backstop_s,
-                                         shader_cache=cell_cache)
+        sweep_status, sweep_res = _sweep(
+            backend,
+            v,
+            ep,
+            gate_task,
+            cold=is_cold,
+            deadline_ms=sweep_deadline_ms,
+            backstop_s=sweep_backstop_s,
+            shader_cache=cell_cache,
+        )
         # Read straight after the sweep: this is what its compile produced, before
         # the job spawns touch the directory.
         shader_bytes = spawn.shader_cache_bytes(cell_cache)
@@ -205,13 +241,23 @@ def cmd_run(args: argparse.Namespace) -> None:
         else:
             pts = sweep_res.events
             depth = sum(p["tokens_count"] for p in pts["prefill_chunks"])
-            log(f"{head}  gate ✓  sweep: prefill to {depth} tokens "
+            log(
+                f"{head}  gate ✓  sweep: prefill to {depth} tokens "
                 f"({len(pts['prefill_chunks'])} chunks) + "
-                f"{len(pts['decode_points'])} decode points")
+                f"{len(pts['decode_points'])} decode points"
+            )
             # 2. the validation job.
-            job_status, job_spawns = _job(backend, v, ep, job_task, spawns=args.spawns,
-                                          iters=args.iters, deadline_ms=deadline_ms,
-                                          backstop_s=backstop_s, shader_cache=cell_cache)
+            job_status, job_spawns = _job(
+                backend,
+                v,
+                ep,
+                job_task,
+                spawns=args.spawns,
+                iters=args.iters,
+                deadline_ms=deadline_ms,
+                backstop_s=backstop_s,
+                shader_cache=cell_cache,
+            )
             # Flag (loudly) any cell whose rendered prompt overran its context,
             # from the exe's own token counts; never trim — adjust by hand.
             budget = job_task.spec.get("max_context_length")
@@ -230,8 +276,11 @@ def cmd_run(args: argparse.Namespace) -> None:
             "shader_cache": cache_control,
             "shader_bytes": shader_bytes,
             "sweep": {"status": sweep_status, "trace": aggregate.trace_of(sweep_res)},
-            "job": {"task": job_task.name, "status": job_status,
-                    "spawns": [aggregate.trace_of(s) for s in job_spawns]},
+            "job": {
+                "task": job_task.name,
+                "status": job_status,
+                "spawns": [aggregate.trace_of(s) for s in job_spawns],
+            },
         }
         # The one genuine cold first-touch is attributed once, to the first cell
         # whose job scored (cold_used is run-global).

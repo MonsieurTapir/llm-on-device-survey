@@ -27,8 +27,9 @@ def cmd_check(args: argparse.Namespace) -> None:
     backend = config.load_backend(args.backend)
     log(f"backend {backend.key!r} → {' '.join(backend.cmd)}")
 
-    ver = subprocess.run([*backend.cmd, "version"], capture_output=True, text=True,
-                         errors="replace")
+    ver = subprocess.run(
+        [*backend.cmd, "version"], capture_output=True, text=True, errors="replace"
+    )
     try:
         keys = list(json.loads(ver.stdout))
     except json.JSONDecodeError as err:
@@ -40,8 +41,10 @@ def cmd_check(args: argparse.Namespace) -> None:
         raise SystemExit(f"no {backend.key!r} variants under {args.models}")
     v = variants[0]
     lanes = registry.providers(backend, v.model_path)
-    log(f"✓ providers for {v.model}/{v.model_path.name}: "
-        + ", ".join(f"{lane.id} ({lane.description})" for lane in lanes))
+    log(
+        f"✓ providers for {v.model}/{v.model_path.name}: "
+        + ", ".join(f"{lane.id} ({lane.description})" for lane in lanes)
+    )
     # ggml drops software rasterizers from its registry; one showing up as a
     # lane means GPU timings would really be CPU timings — fail loudly.
     rasterizers = [lane.id for lane in lanes if "llvmpipe" in lane.description.lower()]
@@ -54,15 +57,27 @@ def cmd_check(args: argparse.Namespace) -> None:
     if pr.events is None:
         raise SystemExit(f"`probe` produced no valid events: {pr.error}")
     best = max(
-        2 * g["m"] * g["n"] * g["k"] / min((r["end_ns"] - r["start_ns"]) for r in g["repeats"])
-        * 1e9 / 1e12
+        2
+        * g["m"]
+        * g["n"]
+        * g["k"]
+        / min((r["end_ns"] - r["start_ns"]) for r in g["repeats"])
+        * 1e9
+        / 1e12
         for g in pr.events["gemm"]
     )
     log(f"✓ probe valid on {ep} ({pr.events['device']}); best gemm {best:.1f} TFLOP/s")
 
     gate = [t for t in load_tasks(args.tasks) if t.role == "gate"]
-    sw = spawn_sweep(backend.cmd, model_path=v.model_path, quant=v.quant, ep=ep,
-                     gate=gate[0].spec, deadline_ms=1, backstop_s=1800)
+    sw = spawn_sweep(
+        backend.cmd,
+        model_path=v.model_path,
+        quant=v.quant,
+        ep=ep,
+        gate=gate[0].spec,
+        deadline_ms=1,
+        backstop_s=1800,
+    )
     if sw.events is None:
         raise SystemExit(f"`sweep` produced no valid events: {sw.error}")
     g = sw.events["geometry"]
@@ -81,8 +96,5 @@ def cmd_check(args: argparse.Namespace) -> None:
     if result.events is None:
         raise SystemExit(f"`run` produced no valid events: {result.error}")
     completion = metrics.completions(result.events)[0]
-    log(
-        f"✓ events valid on {ep} ({result.events['device']}); "
-        f"healthy={result.events['healthy']}"
-    )
+    log(f"✓ events valid on {ep} ({result.events['device']}); healthy={result.events['healthy']}")
     log(f"  {gate[0].name} → {completion!r}")

@@ -115,12 +115,28 @@ def _gate_block(*, expect_pass: bool = True, completion: str = "blue") -> dict:
     return {
         "task": "brain-check",
         "events": [
-            {"type": "prefill", "context_size": 0, "tokens_count": 8,
-             "start_ns": 600, "end_ns": 700},
-            {"type": "decode", "context_size": 8, "tokens_count": 2,
-             "token_ns": [750, 800], "start_ns": 700, "end_ns": 800},
-            {"type": "turn-end", "completion": completion, "expect_pass": expect_pass,
-             "start_ns": 800, "end_ns": 801},
+            {
+                "type": "prefill",
+                "context_size": 0,
+                "tokens_count": 8,
+                "start_ns": 600,
+                "end_ns": 700,
+            },
+            {
+                "type": "decode",
+                "context_size": 8,
+                "tokens_count": 2,
+                "token_ns": [750, 800],
+                "start_ns": 700,
+                "end_ns": 800,
+            },
+            {
+                "type": "turn-end",
+                "completion": completion,
+                "expect_pass": expect_pass,
+                "start_ns": 800,
+                "end_ns": 801,
+            },
         ],
     }
 
@@ -139,15 +155,27 @@ def _sweep_events() -> dict:
         "load": [{"type": "model-load", "start_ns": 0, "end_ns": 100}],
         "geometry": _geometry(),
         "prefill_chunks": [
-            {"type": "prefill", "context_size": 0, "tokens_count": 512,
-             "start_ns": 0, "end_ns": s},
-            {"type": "prefill", "context_size": 512, "tokens_count": 512,
-             "start_ns": 2 * s, "end_ns": int(3.5 * s)},
+            {"type": "prefill", "context_size": 0, "tokens_count": 512, "start_ns": 0, "end_ns": s},
+            {
+                "type": "prefill",
+                "context_size": 512,
+                "tokens_count": 512,
+                "start_ns": 2 * s,
+                "end_ns": int(3.5 * s),
+            },
         ],
         "decode_points": [
-            {"kv_fill": 1024, "tokens": 4,
-             "repeats": [{"token_ns": [10 * s, 11 * s, 12 * s, 13 * s],
-                          "start_ns": 10 * s, "end_ns": 13 * s}]},
+            {
+                "kv_fill": 1024,
+                "tokens": 4,
+                "repeats": [
+                    {
+                        "token_ns": [10 * s, 11 * s, 12 * s, 13 * s],
+                        "start_ns": 10 * s,
+                        "end_ns": 13 * s,
+                    }
+                ],
+            },
         ],
     }
 
@@ -158,10 +186,13 @@ def _probe_events() -> dict:
     s = 1_000_000_000
     return {
         **_base("probe"),
-        "gemm": [{"m": 64, "n": 64, "k": 64, "dtype": "f16",
-                  "repeats": [{"start_ns": 0, "end_ns": s}]}],
-        "copy": [{"kind": "d2d", "bytes": 10**9, "repeats": [{"start_ns": 0, "end_ns": s}]},
-                 {"kind": "h2d", "bytes": 10**9, "repeats": [{"start_ns": 0, "end_ns": s}]}],
+        "gemm": [
+            {"m": 64, "n": 64, "k": 64, "dtype": "f16", "repeats": [{"start_ns": 0, "end_ns": s}]}
+        ],
+        "copy": [
+            {"kind": "d2d", "bytes": 10**9, "repeats": [{"start_ns": 0, "end_ns": s}]},
+            {"kind": "h2d", "bytes": 10**9, "repeats": [{"start_ns": 0, "end_ns": s}]},
+        ],
     }
 
 
@@ -199,18 +230,24 @@ def _raw(cells: list[dict], probes: list[dict] | None = None) -> dict:
             "cpu_cores": 2,
             "cpu_threads": 4,
             "gpus": ["NVIDIA RTX 3090"],
-            "memory": {"total_gb": 32.0, "channels": 2, "configured_mts": 4800,
-                       "rated_mts": 5600, "rank": 1,
-                       "dimms": [{"size_gb": 16, "configured_mts": 4800,
-                                  "rated_mts": 5600, "rank": 1}] * 2},
+            "memory": {
+                "total_gb": 32.0,
+                "channels": 2,
+                "configured_mts": 4800,
+                "rated_mts": 5600,
+                "rank": 1,
+                "dimms": [{"size_gb": 16, "configured_mts": 4800, "rated_mts": 5600, "rank": 1}]
+                * 2,
+            },
         },
         # The run box's sources, as `bench run` records them. Aggregation derives
         # vram_method from THIS, never from the host running the tests.
         "sampling": {"nvml": True},
         "job_spawns": 2,
         "job_iters": 5,
-        "probes": probes if probes is not None else
-        [{"provider": "cuda:0", "trace": {"events": _probe_events(), "samples": []}}],
+        "probes": probes
+        if probes is not None
+        else [{"provider": "cuda:0", "trace": {"events": _probe_events(), "samples": []}}],
         "cells": cells,
     }
 
@@ -249,8 +286,9 @@ def test_probe_reduces_to_declared_throughputs():
 
 
 def test_failed_probe_is_errored_not_invented():
-    raw = _raw([_healthy_cell()], probes=[{"provider": "cuda:0",
-                                           "trace": {"events": None, "samples": []}}])
+    raw = _raw(
+        [_healthy_cell()], probes=[{"provider": "cuda:0", "trace": {"events": None, "samples": []}}]
+    )
     probe = aggregate.build(raw)["probes"][0]
     assert probe["status"] == "errored" and probe["gemm"] == [] and probe["copy"] == []
 

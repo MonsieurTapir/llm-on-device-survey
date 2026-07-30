@@ -15,7 +15,7 @@ from pathlib import Path
 
 from bench import spawn
 
-FAKE = r'''#!/usr/bin/env python3
+FAKE = r"""#!/usr/bin/env python3
 import json, sys, time
 argv = sys.argv[1:]
 out_dir = {out_dir!r}
@@ -67,7 +67,7 @@ elif mode == "hang":
     time.sleep(60)
     doc = {{}}
 print(json.dumps(doc))
-'''
+"""
 
 
 def _fake_backend(tmp_path: Path) -> list[str]:
@@ -83,8 +83,15 @@ def _argv(tmp_path: Path) -> list[str]:
 
 def test_run_argv_shape_and_validation(tmp_path):
     cmd = _fake_backend(tmp_path)
-    result = spawn.run(cmd, model_path=Path("/m/model.gguf"), quant="q4", ep="cpu:0",
-                       task={"name": "t", "messages": []}, iters=3, deadline_ms=1000)
+    result = spawn.run(
+        cmd,
+        model_path=Path("/m/model.gguf"),
+        quant="q4",
+        ep="cpu:0",
+        task={"name": "t", "messages": []},
+        iters=3,
+        deadline_ms=1000,
+    )
     assert result.events is not None and result.healthy
     assert result.samples == []  # sampling is opt-in (sample=True on the job spawns)
     argv = _argv(tmp_path)
@@ -99,15 +106,27 @@ def test_run_argv_shape_and_validation(tmp_path):
 
 def test_run_omits_deadline_when_unset(tmp_path):
     cmd = _fake_backend(tmp_path)
-    spawn.run(cmd, model_path=Path("/m/model.gguf"), quant="q4", ep="cpu:0",
-              task={"name": "t", "messages": []}, iters=1)
+    spawn.run(
+        cmd,
+        model_path=Path("/m/model.gguf"),
+        quant="q4",
+        ep="cpu:0",
+        task={"name": "t", "messages": []},
+        iters=1,
+    )
     assert "--deadline-ms" not in _argv(tmp_path)
 
 
 def test_sweep_argv_shape_and_runs_unsampled(tmp_path):
     cmd = _fake_backend(tmp_path)
-    result = spawn.sweep(cmd, model_path=Path("/m/model.gguf"), quant="q4", ep="vulkan:0",
-                         gate={"name": "brain-check", "messages": []}, deadline_ms=600000)
+    result = spawn.sweep(
+        cmd,
+        model_path=Path("/m/model.gguf"),
+        quant="q4",
+        ep="vulkan:0",
+        gate={"name": "brain-check", "messages": []},
+        deadline_ms=600000,
+    )
     assert result.events is not None and result.healthy  # the exe's gate verdict
     assert result.events["gate"]["task"] == "brain-check"
     assert result.events["geometry"]["memory_points"][0]["n_ctx"] == 128  # schema-checked in
@@ -140,7 +159,7 @@ def test_backstop_kills_and_reports_timeout(tmp_path):
     # the fake's probe path answers instantly; force the hang path via a stub
     # that ignores its subcommand
     hang = tmp_path / "hang-backend"
-    hang.write_text(FAKE.format(out_dir=str(tmp_path)).replace('mode = argv[0]', 'mode = "hang"'))
+    hang.write_text(FAKE.format(out_dir=str(tmp_path)).replace("mode = argv[0]", 'mode = "hang"'))
     hang.chmod(hang.stat().st_mode | stat.S_IEXEC)
     result = spawn.probe([sys.executable, str(hang)], ep="cpu:0", backstop_s=0.5)
     assert result.events is None and result.timed_out

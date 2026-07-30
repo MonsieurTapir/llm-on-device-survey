@@ -121,16 +121,23 @@ class SpawnResult:
     _iters_requested: int = 1
 
 
-def _execute(cmd: list[str], *, backstop_s: float | None, cold: bool = False,
-             iters: int = 1, sample: bool = False,
-             shader_cache: Path | None = None) -> SpawnResult:
+def _execute(
+    cmd: list[str],
+    *,
+    backstop_s: float | None,
+    cold: bool = False,
+    iters: int = 1,
+    sample: bool = False,
+    shader_cache: Path | None = None,
+) -> SpawnResult:
     """Spawn, sample (job spawns only), backstop-kill if needed, parse +
     schema-validate stdout. `shader_cache` pins where the driver caches compiled
     pipelines, so whether this spawn pays the compile is our choice, not history."""
     killed = False
     env = {**os.environ, **_shader_cache_env(shader_cache)}
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            errors="replace", env=env)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace", env=env
+    )
     with Sampler(proc.pid) if sample else nullcontext() as sampler:
         try:
             stdout, stderr = proc.communicate(timeout=backstop_s)
@@ -142,19 +149,27 @@ def _execute(cmd: list[str], *, backstop_s: float | None, cold: bool = False,
 
     if killed:
         reason = f"killed at backstop ({backstop_s:.0f}s)"
-        return SpawnResult(events=None, samples=samples, cold=cold, error=reason,
-                           timed_out=True, _iters_requested=iters)
+        return SpawnResult(
+            events=None,
+            samples=samples,
+            cold=cold,
+            error=reason,
+            timed_out=True,
+            _iters_requested=iters,
+        )
 
     try:
         events = json.loads(stdout)
     except json.JSONDecodeError:
         reason = (stderr.strip().splitlines() or ["no stdout"])[-1][:200]
-        return SpawnResult(events=None, samples=samples, cold=cold, error=reason,
-                           _iters_requested=iters)
+        return SpawnResult(
+            events=None, samples=samples, cold=cold, error=reason, _iters_requested=iters
+        )
 
     schema.validate_events(events, label=" ".join(cmd[:2]))
-    return SpawnResult(events=events, samples=samples, cold=cold, error=None,
-                       _iters_requested=iters)
+    return SpawnResult(
+        events=events, samples=samples, cold=cold, error=None, _iters_requested=iters
+    )
 
 
 def run(
@@ -184,18 +199,31 @@ def run(
         task_path = fh.name
 
     cmd = [
-        *cmd_prefix, "run",
-        "--model", str(model_path),
-        "--quant", quant,
-        "--ep", ep,
-        "--task", task_path,
-        "--iters", str(iters),
+        *cmd_prefix,
+        "run",
+        "--model",
+        str(model_path),
+        "--quant",
+        quant,
+        "--ep",
+        ep,
+        "--task",
+        task_path,
+        "--iters",
+        str(iters),
         *(["--deadline-ms", str(deadline_ms)] if deadline_ms else []),
-        "--out", "-",
+        "--out",
+        "-",
     ]
     try:
-        return _execute(cmd, backstop_s=backstop_s, cold=cold, iters=iters, sample=sample,
-                        shader_cache=shader_cache)
+        return _execute(
+            cmd,
+            backstop_s=backstop_s,
+            cold=cold,
+            iters=iters,
+            sample=sample,
+            shader_cache=shader_cache,
+        )
     finally:
         Path(task_path).unlink(missing_ok=True)
 
@@ -224,13 +252,18 @@ def sweep(
             json.dump(gate, fh)
             gate_path = fh.name
     cmd = [
-        *cmd_prefix, "sweep",
-        "--model", str(model_path),
-        "--quant", quant,
-        "--ep", ep,
+        *cmd_prefix,
+        "sweep",
+        "--model",
+        str(model_path),
+        "--quant",
+        quant,
+        "--ep",
+        ep,
         *(["--gate", gate_path] if gate_path else []),
         *(["--deadline-ms", str(deadline_ms)] if deadline_ms else []),
-        "--out", "-",
+        "--out",
+        "-",
     ]
     try:
         return _execute(cmd, backstop_s=backstop_s, cold=cold, shader_cache=shader_cache)

@@ -74,8 +74,9 @@ def test_null_stats_become_nan_not_zero():
 
 def test_sweep_chunks_load_long_with_cumulative_ttft():
     sweeps = load_sweeps(FIXTURES)
-    pre = sweeps[(sweeps.machine == "3090-box") & (sweeps.kind == "prefill")
-                 & (sweeps.sweep_status == "ok")]
+    pre = sweeps[
+        (sweeps.machine == "3090-box") & (sweeps.kind == "prefill") & (sweeps.sweep_status == "ok")
+    ]
     # Depths stay contiguous through the subdivided chunk (512-wide, then a
     # half-width pair at 1024, then 512-wide again), so the ladder has a 256 step
     # in it and the cumulative sum is still TTFT at each depth.
@@ -85,8 +86,9 @@ def test_sweep_chunks_load_long_with_cumulative_ttft():
         running += ms
         expected.append(round(running, 2))
     assert list(pre.ttft_ms) == expected
-    dec = sweeps[(sweeps.machine == "m1-max") & (sweeps.kind == "decode")
-                 & (sweeps.provider == "mtl")]
+    dec = sweeps[
+        (sweeps.machine == "m1-max") & (sweeps.kind == "decode") & (sweeps.provider == "mtl")
+    ]
     assert list(dec.kv_fill) == [0, 2048] and list(dec.tps_p50) == [80.0, 75.0]
 
 
@@ -153,8 +155,7 @@ def test_thread_fits_ride_along_with_the_width_they_size():
     assert cpu["thr_prefill_scaled_ms"] == 1353.886  # what threads divide
     assert cpu["thr_prefill_floor_pct"] == 3.01  # so prefill keeps paying for cores
     assert cpu["thr_decode_rate_max_tps"] == 22.439
-    assert cpu["thr_decode_threads_p90"] == round(
-        cpu["thr_decode_threads_scale"] * math.log(10), 2)
+    assert cpu["thr_decode_threads_p90"] == round(cpu["thr_decode_threads_scale"] * math.log(10), 2)
     assert cpu["thr_decode_threads_p90"] < cpu["threads_decode"]  # saturates early
 
     mtl = df[(df.machine == "m1-max") & (df.provider == "mtl")].iloc[0]
@@ -177,10 +178,20 @@ def test_flat_file_labels_by_host_not_gpu(tmp_path):
         "schema_version": "2",
         "backend": "llamacpp",
         "machine": {
-            "host": "leaf-desktop", "os": "linux", "cpu": "x",
-            "cpu_cores": 16, "cpu_threads": 32, "gpus": ["NVIDIA RTX 5090"],
-            "memory": {"total_gb": 32.0, "channels": None, "configured_mts": None,
-                       "rated_mts": None, "rank": None, "dimms": None},
+            "host": "leaf-desktop",
+            "os": "linux",
+            "cpu": "x",
+            "cpu_cores": 16,
+            "cpu_threads": 32,
+            "gpus": ["NVIDIA RTX 5090"],
+            "memory": {
+                "total_gb": 32.0,
+                "channels": None,
+                "configured_mts": None,
+                "rated_mts": None,
+                "rank": None,
+                "dimms": None,
+            },
         },
         "job_spawns": 2,
         "probes": [],
@@ -188,28 +199,48 @@ def test_flat_file_labels_by_host_not_gpu(tmp_path):
     }
     (tmp_path / "llamacpp-results.json").write_text(json.dumps(doc))
     assert load_results(tmp_path).empty  # no runs, but it loaded without error
-    doc["runs"] = [{
-        "provider": "cuda", "device": "cuda:0", "model": "m", "quant": "q4",
-        "healthy": False, "unhealthy_reason": "x", "vram_method": "nvml",
-        "threads": None,  # nothing ran, so no width was observed
-        "geometry": None,
-        "sweep": {"status": "skipped", "prefill": [], "decode": [], "fit": None,
-                  "ubatch": [], "warmup_ms": None, "shader_bytes": None,
-                  "shader_cache": "redirected"},
-        "job": {"status": "skipped", "task": "summarize-large"},
-    }]
+    doc["runs"] = [
+        {
+            "provider": "cuda",
+            "device": "cuda:0",
+            "model": "m",
+            "quant": "q4",
+            "healthy": False,
+            "unhealthy_reason": "x",
+            "vram_method": "nvml",
+            "threads": None,  # nothing ran, so no width was observed
+            "geometry": None,
+            "sweep": {
+                "status": "skipped",
+                "prefill": [],
+                "decode": [],
+                "fit": None,
+                "ubatch": [],
+                "warmup_ms": None,
+                "shader_bytes": None,
+                "shader_cache": "redirected",
+            },
+            "job": {"status": "skipped", "task": "summarize-large"},
+        }
+    ]
     (tmp_path / "llamacpp-results.json").write_text(json.dumps(doc))
     assert set(load_results(tmp_path)["machine"]) == {"leaf-desktop"}
 
 
 def test_schema_version_mismatch_is_loud(tmp_path):
     (tmp_path / "llamacpp-results.json").write_text(
-        json.dumps({"schema_version": "99", "backend": "llamacpp",
-                    "machine": {"os": "linux", "cpu": "x", "gpus": []},
-                    "iters": 1, "spawns": 1, "runs": []})
+        json.dumps(
+            {
+                "schema_version": "99",
+                "backend": "llamacpp",
+                "machine": {"os": "linux", "cpu": "x", "gpus": []},
+                "iters": 1,
+                "spawns": 1,
+                "runs": [],
+            }
+        )
     )
-    for loader in (load_results, load_sweeps, load_probes, load_memory,
-                   load_thread_scaling):
+    for loader in (load_results, load_sweeps, load_probes, load_memory, load_thread_scaling):
         with pytest.raises(ValueError, match="schema_version"):
             loader(tmp_path)
 

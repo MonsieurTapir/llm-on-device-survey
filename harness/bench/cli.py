@@ -42,8 +42,11 @@ def main() -> None:
 
     p_plan = sub.add_parser("plan", help="enumerate cells without running")
     common(p_plan)
-    p_plan.add_argument("--providers", nargs="*",
-                        help="restrict to these device lanes (vulkan:0) or families (vulkan)")
+    p_plan.add_argument(
+        "--providers",
+        nargs="*",
+        help="restrict to these device lanes (vulkan:0) or families (vulkan)",
+    )
     p_plan.add_argument("--model", nargs="*", help="restrict to these models.yaml keys")
     p_plan.set_defaults(func=cmd_plan)
 
@@ -72,8 +75,11 @@ def main() -> None:
         default=120000,
         help="hard kill if even one job iteration outlives this — job marked too-slow",
     )
-    p_run.add_argument("--providers", nargs="*",
-                       help="restrict to these device lanes (vulkan:0) or families (vulkan)")
+    p_run.add_argument(
+        "--providers",
+        nargs="*",
+        help="restrict to these device lanes (vulkan:0) or families (vulkan)",
+    )
     p_run.add_argument("--model", nargs="*", help="restrict to these models.yaml keys")
     p_run.add_argument(
         "--machine", help="machine name for results.machine.host (default: hostname)"
@@ -124,17 +130,27 @@ def main() -> None:
     p_pub.set_defaults(func=cmd_publish)
 
     p_bundle = sub.add_parser("bundle", help="pack a local run into a submission tarball")
-    p_bundle.add_argument("src", nargs="?", type=Path, default=config.RESULTS_DIR,
-                          help="local results dir holding <backend>-results.json")
+    p_bundle.add_argument(
+        "src",
+        nargs="?",
+        type=Path,
+        default=config.RESULTS_DIR,
+        help="local results dir holding <backend>-results.json",
+    )
     p_bundle.add_argument("--name", help="submission name (default: derived from the machine)")
-    p_bundle.add_argument("--out", type=Path, default=Path("."),
-                          help="where to write submission-<name>.tar.gz")
+    p_bundle.add_argument(
+        "--out", type=Path, default=Path("."), help="where to write submission-<name>.tar.gz"
+    )
     p_bundle.set_defaults(func=cmd_bundle)
 
     p_ing = sub.add_parser("ingest", help="validate a submission tarball and land it")
     p_ing.add_argument("tarball", type=Path, help="a submission-<name>.tar.gz")
-    p_ing.add_argument("--published-dir", type=Path, default=config.RESULTS_DIR / "published",
-                       help="where submissions live (default: results/published)")
+    p_ing.add_argument(
+        "--published-dir",
+        type=Path,
+        default=config.RESULTS_DIR / "published",
+        help="where submissions live (default: results/published)",
+    )
     p_ing.add_argument("--force", action="store_true", help="overwrite an existing submission")
     p_ing.set_defaults(func=cmd_ingest)
 

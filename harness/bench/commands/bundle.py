@@ -106,8 +106,7 @@ def cmd_bundle(args: argparse.Namespace) -> None:
             if raw_path.exists():
                 raw = json.loads(gzip.decompress(raw_path.read_bytes()))
                 raw["machine"]["host"] = name
-                _add_bytes(tar, f"{name}/{raw_path.name}",
-                           gzip.compress(json.dumps(raw).encode()))
+                _add_bytes(tar, f"{name}/{raw_path.name}", gzip.compress(json.dumps(raw).encode()))
         _add_bytes(tar, f"{name}/README.md", _render_readme(name, docs).encode())
 
     title = urllib.parse.quote(f"submission: {name}")

@@ -97,8 +97,16 @@ def _coverage(doc: dict) -> list[list[str]]:
             job = run["job"]["status"]
         pts = len(run["sweep"]["prefill"]) + len(run["sweep"]["decode"])
         sweep_cell = f"{sweep} ({pts} pts)" if pts else sweep
-        rows.append([run["model"], run["quant"], run["provider"],
-                     _threads_cell(run.get("threads")), sweep_cell, job])
+        rows.append(
+            [
+                run["model"],
+                run["quant"],
+                run["provider"],
+                _threads_cell(run.get("threads")),
+                sweep_cell,
+                job,
+            ]
+        )
     rows.sort()
     return rows
 
@@ -123,8 +131,10 @@ def _render_readme(name: str, docs: list[tuple[Path, dict]]) -> str:
     for _path, doc in sorted(docs, key=lambda d: d[1]["backend"]):
         out += ["", f"## {doc['backend']}  ({len(doc['runs'])} runs)", ""]
         if doc.get("probes"):
-            out += ["| provider | device | threads | gemm TFLOP/s | d2d GB/s | probe |",
-                    "|---|---|---|---|---|---|"]
+            out += [
+                "| provider | device | threads | gemm TFLOP/s | d2d GB/s | probe |",
+                "|---|---|---|---|---|---|",
+            ]
             out += _probe_rows(doc)
             out.append("")
         header = ["model", "quant", "provider", "threads", "sweep", "job"]
