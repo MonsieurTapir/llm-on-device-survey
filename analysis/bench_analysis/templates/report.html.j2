@@ -202,13 +202,14 @@
     here against the generation rates in Results. The line is the fit the harness took
     over the measured widths, drawn no further than them; the hollow ring is the width
     the lane actually runs, which is the width every other number on this page comes
-    from. The dashed lines are the two fitted limits: for the prompt, the part of a
-    chunk that no width removes; for generation, the rate an unbounded width would
-    approach. The two phases behave differently on purpose. Prompt reading keeps
-    dividing its work, so it keeps rewarding cores; generation saturates a shared
-    memory path and stops paying — the dashed vertical rule is where the fit reaches
-    90% of its ceiling, and that width is what a reduced-power operating mode would
-    pick.</p>
+    from. Hover a curve for that lane's fitted limits, drawn one lane at a time
+    because all of them at once is more annotation than chart: a dashed horizontal
+    line for the limit the fit approaches — for the prompt, the part of a chunk that
+    no width removes; for generation, the rate an unbounded width would reach. The
+    two phases behave differently on purpose. Prompt reading keeps dividing its work,
+    so it keeps rewarding cores; generation saturates a shared memory path and stops
+    paying — hovering a generation curve also marks where its fit reaches 90% of its
+    ceiling, and that width is what a reduced-power operating mode would pick.</p>
   <div class="curves">
     {% for sid in threads %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
   </div>

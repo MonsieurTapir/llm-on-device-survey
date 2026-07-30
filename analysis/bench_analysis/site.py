@@ -2223,13 +2223,17 @@ def _thread_spec(
     y_title: str,
     value_title: str,
 ) -> dict:
-    """One phase's thread ladder: the measured widths as dots, the harness's fit as
-    the line through them, and the fit's asymptote as a dashed line.
+    """One phase's thread ladder: the measured widths as dots and the harness's fit as
+    the line through them.
 
     The hollow ring is the width the lane actually runs — every other dot is a width
-    the ladder visited to find the shape. On the decode chart a dashed vertical rule
-    marks where the fit reaches 90% of its ceiling: the width past which the machine
-    stops being paid for cores.
+    the ladder visited to find the shape.
+
+    A lane's fitted parameters are drawn on hover and not before: its asymptote as a
+    dashed line, and on the decode chart the dashed vertical rule where the fit
+    reaches 90% of its ceiling — the width past which the machine stops being paid
+    for cores. Every lane's at once is four ceilings, four rules and four labels
+    overprinting one another, which is a chart of its own annotations.
 
     Same frame as the cost curves (400×220, lane hue, legend at the bottom) and the
     same controls, because it is the same lanes seen from a different axis. Unlike
@@ -2263,6 +2267,30 @@ def _thread_spec(
     # because the head is where a saturating fit's own ceiling line runs.
     label = {"type": "text", "align": "left", "dx": 4, "fontSize": 9, "baseline": "bottom"}
     label_y = {"value": 214}  # just clear of the axis, in a 220-tall plot
+    # A fitted parameter belongs to one lane, and drawing every lane's at once buried
+    # the curves the chart is about — four ceilings, four rules and four labels
+    # overprinting each other along one axis. They are asked for instead: point at a
+    # curve and that lane's own answers appear.
+    #
+    # The target is a fat invisible copy of the fit line, because a 2px path is not
+    # something a pointer can be asked to land on. It sits *under* the dots so their
+    # tooltips still win the pointer — which is also why `nearest` is not used here:
+    # it overlays a voronoi whose datum is the mark item rather than the row, and
+    # every tooltip field on the layer it is declared on comes out `undefined`.
+    #
+    # Nothing clears the selection. Crossing a dot would otherwise drop the lane's
+    # annotations for as long as the pointer sat on it, and a reader who has stopped
+    # pointing is still reading the lane they stopped on.
+    hover = {
+        "name": "lane_hover",
+        "select": {
+            "type": "point",
+            "fields": ["lane"],
+            "on": "pointerover",
+            "clear": False,
+        },
+    }
+    only_hovered = {"filter": {"param": "lane_hover", "empty": False}}
     return {
         "$schema": VL_SCHEMA,
         "title": {
@@ -2282,12 +2310,15 @@ def _thread_spec(
             # part of a chunk no width removes; decode's ceiling, the rate an
             # unbounded width would approach.
             {
-                "transform": [{"filter": "datum.kind === 'asymptote'"}],
+                "transform": [{"filter": "datum.kind === 'asymptote'"}, only_hovered],
                 "mark": {"type": "rule", "strokeDash": [4, 3], "strokeWidth": 1.5, "opacity": 0.55},
                 "encoding": {"y": y, "color": color, "tooltip": fitted},
             },
             {
-                "transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+                "transform": [
+                    {"filter": "datum.kind === 'p90' && datum.in_domain"},
+                    only_hovered,
+                ],
                 "mark": {"type": "rule", "strokeDash": [2, 3], "strokeWidth": 1.5, "opacity": 0.55},
                 "encoding": {"x": x, "color": color, "tooltip": reached},
             },
@@ -2295,6 +2326,14 @@ def _thread_spec(
                 "transform": [{"filter": "datum.kind === 'fit'"}],
                 "mark": {"type": "line", "strokeWidth": 2},
                 "encoding": {"x": x, "y": y, "color": color},
+            },
+            # The hover target: the fit line again, fat and invisible, one path per
+            # lane. Under the dots, so a dot's own tooltip still wins the pointer.
+            {
+                "transform": [{"filter": "datum.kind === 'fit'"}],
+                "params": [hover],
+                "mark": {"type": "line", "strokeWidth": 16, "opacity": 0},
+                "encoding": {"x": x, "y": y, "detail": {"field": "lane"}},
             },
             {
                 "transform": [{"filter": "datum.kind === 'point'"}],
@@ -2309,7 +2348,10 @@ def _thread_spec(
                 "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip},
             },
             {
-                "transform": [{"filter": "datum.kind === 'p90' && datum.in_domain"}],
+                "transform": [
+                    {"filter": "datum.kind === 'p90' && datum.in_domain"},
+                    only_hovered,
+                ],
                 "mark": label,
                 "encoding": {"x": x, "y": label_y, "color": color, "text": {"field": "label"}},
             },
@@ -2317,7 +2359,10 @@ def _thread_spec(
             # rule there would stretch the x scale to reach itself, so the fact goes
             # to the left edge as text.
             {
-                "transform": [{"filter": "datum.kind === 'p90' && !datum.in_domain"}],
+                "transform": [
+                    {"filter": "datum.kind === 'p90' && !datum.in_domain"},
+                    only_hovered,
+                ],
                 "mark": {**label, "fontStyle": "italic"},
                 "encoding": {
                     "x": {"datum": 1, "type": "quantitative"},

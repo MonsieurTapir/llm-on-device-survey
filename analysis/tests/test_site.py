@@ -1182,7 +1182,13 @@ def test_thread_islands_draw_the_dots_the_fit_and_its_limits(tmp_path):
         assert "datum.kind === 'point' && datum.at_width" in kinds
         assert "datum.kind === 'asymptote'" in kinds
 
-        by_kind = dict(zip(kinds, spec["layer"], strict=True))
+        # Two layers filter to the fit — the drawn line and the invisible hover
+        # surface over the same path — so key on the ones that put ink down.
+        by_kind = {
+            layer["transform"][0]["filter"]: layer
+            for layer in spec["layer"]
+            if layer["mark"].get("opacity") != 0
+        }
         fit = by_kind["datum.kind === 'fit'"]
         assert fit["mark"] == {"type": "line", "strokeWidth": 2}
         assert fit["encoding"]["x"]["field"] == "threads"
@@ -1210,6 +1216,34 @@ def test_thread_islands_draw_the_dots_the_fit_and_its_limits(tmp_path):
         assert [t["field"] for t in asymptote["encoding"]["tooltip"]] == ["label", "value"]
 
     decode = _island(h, "thread-decode")
+    # The fitted parameters are asked for, not always drawn: every annotation layer
+    # filters on a hover selection, declared by a fat invisible copy of the fit line
+    # that gives the pointer something to land on. Filtered rather than dimmed, so an
+    # unhovered lane leaves no rule spanning the plot to catch a tooltip.
+    (surface,) = [layer for layer in decode["layer"] if layer["mark"].get("opacity") == 0]
+    assert surface["mark"]["strokeWidth"] > 8  # a 2px path is not a hover target
+    (hover_param,) = surface["params"]
+    assert hover_param["select"]["on"] == "pointerover"
+    assert hover_param["select"]["fields"] == ["lane"]
+    # Never cleared: crossing a dot must not drop the annotations, and the tooltip
+    # the dot then shows belongs to the same lane anyway.
+    assert hover_param["select"]["clear"] is False
+    # The surface sits below the dots, whose tooltips have to win the pointer.
+    kinds_in_order = [layer["transform"][0]["filter"] for layer in decode["layer"]]
+    assert kinds_in_order.index("datum.kind === 'fit'") < kinds_in_order.index(
+        "datum.kind === 'point'"
+    )
+    gate = {"filter": {"param": hover_param["name"], "empty": False}}
+    annotated = [
+        layer
+        for layer in decode["layer"]
+        if "p90" in layer["transform"][0]["filter"]
+        or layer["transform"][0]["filter"] == "datum.kind === 'asymptote'"
+    ]
+    assert len(annotated) == 4  # ceiling rule, 90% rule, its label, the out-of-domain note
+    for layer in annotated:
+        assert layer["transform"][1] == gate
+
     p90 = [
         layer
         for layer in decode["layer"]
