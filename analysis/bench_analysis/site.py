@@ -9,9 +9,9 @@ share one lane axis: lanes are grouped into bands by what kind of device they ar
 band. The two tok/s columns draw an interval, not a bar: both rates fall as the
 context fills, so a lane spans the range the sweep measured across depth, with a
 dot on the validation job's own number. Warm init is a bar — seconds to ready has
-no depth. Each column's heading is its x-axis title, so it sits over the plot
-area, and on the two tok/s columns that axis also carries the reading-speed
-references as its gridlines. The sections below read the same controls: what a
+no depth. Each column's heading sits over the plot area, its numeric scale under
+it, and on the two tok/s columns the reading-speed references cross the bands as
+gridlines, named under the scale. The sections below read the same controls: what a
 task would take on each lane (the same three columns, in seconds, computed in the
 page from the measured cost functions — `assets/tasks.js`), what the first launch
 costs before any rate applies (pipeline compilation, cold first touch), the cost
@@ -107,21 +107,19 @@ VEGA_LIBS = (
 # The spec dialect follows the vega-lite the page actually ships (see VEGA_LIBS).
 VL_SCHEMA = f"https://vega.github.io/schema/vega-lite/v{alt.VEGALITE_VERSION.split('.')[0]}.json"
 
-# The measured grid's columns. The two rate columns name the depth their dot was
-# measured at — `{job}` is filled from the rows at build time — because the section
-# below prices the same two quantities for a task the reader picks, and a rate means
-# nothing without the depth it belongs to.
-METRICS = (  # column key, title, value-label format (vega d3-format), subtitle
-    ("decode", "generation (tok/s)", ".0f", "dot: the {job}-token job"),
-    ("prefill", "prompt reading (tok/s)", ".0f", "dot: the {job}-token job"),
-    ("init", "init, warm (s)", ".1f", "lower is better"),
+# The measured grid's columns. The two rate columns say their ink spans context
+# depth, because a rate means nothing without the depth it belongs to — and the
+# interval's ends are exactly that: the sweep's shallowest and deepest measured
+# depth.
+METRICS = (  # column key, title, subtitle
+    ("decode", "generation (tok/s)", "across context depth"),
+    ("prefill", "prompt reading (tok/s)", "across context depth"),
+    ("init", "init, warm (s)", "lower is better"),
 )
 
 # The task grid's three column slots. Their meaning belongs to the selected task —
 # TASKS below carries each task's own column titles, and the page re-titles the
-# axes on selection — so these keys are routing, not semantics. Value labels are
-# strings the page's arithmetic writes ("2 min 14 s", "~8.9 s"): seconds for a
-# task have no one d3 format.
+# axes on selection — so these keys are routing, not semantics.
 TASK_METRICS = ("ttft", "tps", "total")
 
 # The columns whose number moves with how full the context is, and which therefore
@@ -134,27 +132,22 @@ RANGE_METRICS = {"decode", "prefill"}
 # Rates convert at 1 token ≈ ¾ of a word, from a 250-word page and a 90,000-word
 # book: silent reading ~200 wpm, a 60-word paragraph or a 250-word page per second, a
 # book a minute. Three per column at most — past that the chart is gridlines. Every
-# anchor is drawn; which ones can also carry their name is geometry, and
-# `_anchor_labels` works it out from the column's own numbers. `init` has no key:
-# seconds-to-ready has no reading-speed equivalent, so that column keeps ordinary
-# tick labels.
+# anchor is drawn, and each is named under the axis on its own line
+# (`_anchor_axis`), so names never fight each other for room. The name is the whole
+# label and reads as the human rate it stands for — the numeric axis just above
+# already says where the line sits in tok/s. `init` has no key: seconds-to-ready
+# has no reading-speed equivalent, so that column carries only the numeric scale.
 READING_ANCHORS = {
-    "decode": ((5, "silent reading"), (130, "paragraph/s")),
-    "prefill": ((130, "paragraph/s"), (400, "page/s"), (1700, "book/min")),
+    "decode": ((5, "silent reading"), (130, "1 paragraph/s")),
+    "prefill": ((130, "1 paragraph/s"), (400, "1 page/s"), (1700, "1 book/min")),
 }
 
 # The task grid's generation column is the same quantity, so it carries the same two
-# references. Its numbers are computed in the page, so there is no build-time domain
-# to fit names against — these two are 26× apart, which no plot width can bring
-# together.
-TASK_ANCHORS = {"tps": ((5, "silent reading"), (130, "paragraph/s"))}
+# references.
+TASK_ANCHORS = {"tps": ((5, "silent reading"), (130, "1 paragraph/s"))}
 
-# The plot area of one grid column, in pixels, and how wide a character of an axis
-# label is at `labelFontSize` 9 — measured in the shipped vega build ("130 ·
-# paragraph/s" renders 72 pixels wide, "400 · page/s" 50, "130 ¶/s" 30). Both feed
-# `_anchor_labels`, which is arithmetic about pixels and needs them.
+# The plot area of one grid column, in pixels.
 GRID_WIDTH = 190
-LABEL_PX_PER_CHAR = 4.3
 
 # The three tasks, in select order. Each carries its own column titles — a chat
 # turn and a background job answer different questions, and the title is where
@@ -197,8 +190,8 @@ TASKS = (
             ("total (s)", "lower is better"),
         ),
         "note": "The whole prompt is read from empty before the first token. This is "
-        "the validation job's own shape: the dots are its measurements, so "
-        "the gap between bar and dot is this calculator's error.",
+        "the validation job's own shape — the accuracy section below reads "
+        "these predictions against its measurements.",
     },
     {
         "key": "extract",
@@ -406,41 +399,38 @@ def _depth_ranges(sweeps: pd.DataFrame) -> dict[tuple[tuple, str], dict]:
     return out
 
 
-def _range_fields(span: dict | None, value: float | None, job_at: int | None) -> dict:
-    """One range metric's interval for one cell: the sweep's endpoints, the job's
-    point, and where the label goes.
+def _rate(v: float) -> str:
+    """A tok/s figure as the grid prints it: whole numbers once double digits, one
+    decimal below that — a slow lane's 8.9 and 9.6 are different answers."""
+    return f"{v:,.0f}" if v >= 10 else f"{round(v, 1):g}"
 
-    `lo`/`hi` span the *union* of the sweep's two endpoints and the job's value, so
-    the dot always sits on the rule. Most of the shelf's slow cells reached only one
-    (deep) fill before the sweep's budget ran out; drawn as a lone point with the
-    job's dot some distance off, that reads as two numbers competing rather than one
-    lane's range. `label_x` is the right edge of the row's ink: what the headroom mark
-    reserves room past, and where a status note goes. It is not where the value label
-    goes — that rides the job's dot, at `value`, because the number it prints is the
-    dot's. A cell with no sweep point keeps its job dot and draws no interval."""
+
+def _range_fields(span: dict | None) -> dict:
+    """One range metric's interval for one cell: the sweep's endpoints over depth,
+    and nothing else's.
+
+    `range_label` prints the two ends at the interval's far edge — a one-point
+    sweep collapses to a point and prints one number — and `label_x` is that edge,
+    which is also where a status note goes. `sweep_str` is the hover's version,
+    with the depths the ends were measured at."""
     fields = {
         "v_shallow": None,
         "v_deep": None,
         "d_shallow": None,
         "d_deep": None,
         "n_depths": None,
-        "job_at": job_at,
         "lo": None,
         "hi": None,
-        "label_x": value,
+        "label_x": None,
+        "range_label": None,
         "sweep_str": None,
-        "job_str": None,
     }
-    if value is not None and job_at is not None:
-        fields["job_str"] = f"{value:g} tok/s at the {_depth_str(job_at)}-token job"
     if span:
         fields.update(span)
-        ends = [v for v in (span["v_shallow"], span["v_deep"], value) if v is not None]
-        fields["lo"], fields["hi"] = min(ends), max(ends)
-        fields["label_x"] = fields["hi"]  # the interval's far end is the row's edge
-        # The hover must describe the ink: the interval joins the sweep's points to
-        # the job's dot, so a one-point sweep hovers as one point — never as a
-        # degenerate "17–17 range" under a rule the job's 49 visibly stretches.
+        lo, hi = sorted((span["v_shallow"], span["v_deep"]))
+        fields["lo"], fields["hi"] = lo, hi
+        fields["label_x"] = hi
+        fields["range_label"] = _rate(hi) if lo == hi else f"{_rate(lo)}–{_rate(hi)}"
         shallow = f"{span['v_shallow']:g} at {_depth_str(span['d_shallow'])} tokens"
         deep = f"{span['v_deep']:g} at {_depth_str(span['d_deep'])}"
         fields["sweep_str"] = (
@@ -467,16 +457,20 @@ def _grid_rows(df: pd.DataFrame, ranges: dict[tuple[tuple, str], dict]) -> list[
     reason instead — so the three metric columns keep identical rows, and no lane
     silently drops out of a band.
 
-    `value` is always the validation job's number, at its one prompt depth (that is
-    what `rank`, the tooltips and the init column read). The two range metrics carry
-    the sweep's depth range beside it (`_range_fields`), plus `job_at`: how deep the
-    job's own prompt was, derived from its rate and its time to first token rather
-    than assumed.
+    The two range columns carry only what the sweep measured (`_range_fields`); the
+    validation job's own numbers stay out of this grid — the accuracy section is
+    where they are read against the calculator. `value` is the init column's
+    number; the range columns' ink is `lo`/`hi`.
 
     A cell that measured nothing carries the reason — and carries it *once*, on the
-    first column that would have shown a number, because the reason belongs to the
-    whole (lane, model) and printing it in all three columns is the same sentence
-    three times. The other columns keep the row and stay blank.
+    first column, because the reason belongs to the whole (lane, model) and
+    printing it in all three columns is the same sentence three times. The other
+    columns keep the row and stay blank. Where the sweep left an interval but the
+    job produced no number, the reason names the job ("job too slow") — the row
+    visibly measured something, and the note must not read as if it had not; that
+    column's range label yields to the note, and the range stays on hover. The
+    inverse gap is also said out loud: an ok cell whose sweep left no points in a
+    range column notes "no sweep data" there instead of a silent blank.
 
     `rank` is the lane's generation-speed position within its model; the y axis
     sorts on it, so all three columns order their bands the same way."""
@@ -494,28 +488,26 @@ def _grid_rows(df: pd.DataFrame, ranges: dict[tuple[tuple, str], dict]) -> list[
             "rank": rank.get((r.model, r.lane), len(rank)),
         }
         cell = (r.machine, r.backend, r.provider, r.model, r.quant)
-        if r.status == "ok":
-            values = {
-                "decode": r.decode_tps_p50,
-                "prefill": r.prefill_tps_p50,
-                "init": (r.model_load_ms_p50 + r.context_init_ms_p50) / 1e3,
-            }
-            note = None
-            depth = r.prefill_tps_p50 * r.ttft_ms_p50 / 1e3
-            job_at = round(depth) if depth == depth else None  # NaN-safe
-        else:  # measured nothing: the band keeps the row and states why
-            values = dict.fromkeys(("decode", "prefill", "init"))
-            note = str(r.status).replace("_", " ")
-            job_at = None
-        told = False  # the status note, in the first column that has room for it
-        for metric, value in values.items():
-            usable = value is not None and value == value  # NaN-safe
-            value = round(float(value), 2) if usable else None
-            here = note if note and not usable and not told else None
+        ok = r.status == "ok"
+        init = (r.model_load_ms_p50 + r.context_init_ms_p50) / 1e3 if ok else None
+        note = None if ok else str(r.status).replace("_", " ")
+        if note and any((cell, m) in ranges for m in RANGE_METRICS):
+            note = f"job {note}"  # the sweep left an interval; the job is what did not
+        told = False  # the status note, once, in the first column
+        for metric in ("decode", "prefill", "init"):
+            value = None
+            if metric == "init" and init is not None and init == init:  # NaN-safe
+                value = round(float(init), 2)
+            here = note if note and not told else None
             told = told or here is not None
             row = {**base, "metric": metric, "value": value, "note": here}
             if metric in RANGE_METRICS:
-                row.update(_range_fields(ranges.get((cell, metric)), value, job_at))
+                span = ranges.get((cell, metric))
+                row.update(_range_fields(span))
+                if here:
+                    row["range_label"] = None  # the note sits where the label would
+                elif ok and span is None:
+                    row["note"] = "no sweep data"
             rows.append(row)
     return rows
 
@@ -581,136 +573,133 @@ def _params(controls: list[dict]) -> list[dict]:
     return [{"name": c["signal"], "value": c["value"]} for c in controls]
 
 
-def _job_depth(rows: list[dict]) -> str | None:
-    """How deep the validation job's prompt was, as a heading can say it: the median
-    of the depths the rows carry, to the nearest half-thousand tokens ('~1.5k').
-
-    The two rate columns show a range over depth with the job's dot inside it, so the
-    heading has to name which of the two it is scoping. The number is read off the
-    rows (each carries its own `job_at`, derived from its rate and its time to first
-    token) rather than assumed from the task's prompt file."""
-    depths = sorted(r["job_at"] for r in rows if r.get("job_at"))
-    if not depths:
-        return None
-    median = (
-        depths[len(depths) // 2]
-        if len(depths) % 2
-        else (depths[len(depths) // 2 - 1] + depths[len(depths) // 2]) / 2
-    )
-    return f"~{round(median / 500) / 2:g}k"
-
-
 def _depth_str(tokens: float) -> str:
     """A token depth as a tooltip can say it: plain under a thousand, '7.2k' above —
     the same shorthand the axis headings use."""
     return f"{round(tokens):,}" if tokens < 1000 else f"{round(tokens / 100) / 10:g}k"
 
 
-def _metric_spans(rows: list[dict]) -> dict[str, float]:
-    """The widest each metric column's scale can get, per metric: the row with the most
-    ink, plus the headroom mark that reserves room past it, plus a little for the
-    rounding vega's `nice` does on top (measured: a 1,040 tok/s column lands on a
-    1,300 domain). Filtering the page only takes rows away, so nothing can push a
-    column past this — which is what makes it safe to fit the anchor names against."""
-    spans: dict[str, float] = {}
-    for row in rows:
-        ink = row.get("label_x") if row["metric"] in RANGE_METRICS else row["value"]
-        if ink:
-            spans[row["metric"]] = max(spans.get(row["metric"], 0), ink * 1.16 * 1.1)
-    return spans
+def _heading_axis(title: str, subtitle: str | None) -> dict:
+    """A grid column's heading: a top x axis that carries only its title.
 
-
-def _anchor_labels(anchors: tuple, span: float | None) -> list[tuple[int, str]]:
-    """What each anchor line says, given how wide the column's scale is: its rate and
-    the reading speed it stands for, or just its rate, or nothing.
-
-    A label rides its own tick and vega culls nothing on an axis with explicit
-    `values` (checked in the shipped build: every `labelOverlap` setting draws both of
-    a colliding pair), so a column can only name the anchors that fit side by side.
-    Which anchors those are is data: on this shelf the prompt column reaches 1,040
-    tok/s, so its 130 and 400 lines land 39 pixels apart and only the first can carry
-    a name. `span` is the widest that column's scale can get — the unfiltered ink plus
-    the headroom mark, plus the little vega's `nice` rounding adds — and every filter
-    only shrinks it, which pushes the survivors further apart. So a name that fits
-    here fits in every state of the control row. Falling back from the name to the
-    bare rate keeps a line identifiable where the name will not fit; falling back to
-    nothing keeps the section's copy as the last key rather than printing text over
-    text."""
-    out: list[tuple[int, str]] = []
-    edge = None
-    for value, name in anchors:
-        if span is None:
-            out.append((value, f"{value:,} · {name}"))
-            continue
-        if value > span:
-            continue  # off the end of the scale: there is no line to name
-        x = value / span * GRID_WIDTH
-        for text in (f"{value:,} · {name}", f"{value:,}"):
-            half = len(text) * LABEL_PX_PER_CHAR / 2
-            if edge is None or x - half >= edge:
-                out.append((value, text))
-                edge = x + half + 4
-                break
-        else:
-            out.append((value, ""))
-    return out
-
-
-def _metric_axis(
-    title: str, subtitle: str | None, anchors: tuple | None, span: float | None = None
-) -> dict:
-    """The x axis of one grid column: its heading *and*, where the column has
-    reading-speed anchors, its reference rules.
-
-    The heading rides the axis rather than the column, because the axis group is
+    The heading rides an axis rather than the column, because the axis group is
     exactly the plot area — `orient: top` with `titleAnchor: start` puts the text
     over the first bar's left edge, where a concat title would span the lane-label
-    gutter too. The anchors are this axis's gridlines: they draw under the marks and
-    a rule that no longer fits the domain simply is not drawn, so filtering the page
-    rescales the references with the bars (a rule *mark* would stretch the domain to
-    reach itself). An anchored column's tick labels are those anchors' names, as far
-    as they fit (`_anchor_labels`); an unanchored column keeps plain numeric ticks."""
-    axis: dict = {
+    gutter too. Everything else the column's scale has to say sits below the plot
+    (`_value_axis`, `_anchor_axis`), so this axis draws no labels, ticks or line."""
+    return {
         "orient": "top",
         "titleAnchor": "start",
         "title": [title, subtitle] if subtitle else title,
         "titleFontSize": 12,
         "titleLineHeight": 13,
+        "labels": False,
+        "ticks": False,
+        "domain": False,
+        "grid": False,
+    }
+
+
+def _value_axis(fmt: str | None = None) -> dict:
+    """A grid column's scale: an ordinary numeric axis under the plot — line,
+    plain tick labels, no grid. This is what a mark is read against; the exact
+    number a mark stands for is its tooltip's job, not a printed label's."""
+    axis: dict = {
+        "orient": "bottom",
+        "title": None,
+        "grid": False,
+        "domain": True,
+        "domainColor": "currentColor",
+        "domainOpacity": 0.3,
+        "ticks": False,
         "labelFontSize": 9,
         "labelOpacity": 0.7,
         "labelOverlap": "greedy",
-        "ticks": False,
-        "domain": False,
     }
-    if not anchors:
-        return {**axis, "grid": False}
+    return {**axis, "format": fmt} if fmt else axis
+
+
+def _anchor_axis(anchors: tuple) -> dict:
+    """A column's reading-speed references: dashed gridlines crossing every band,
+    each named below the numeric axis. The names stack — anchor *i* renders on
+    line *i* of a multi-line tick label — so two anchors close together on the
+    scale never fight for the same stretch of text, and every reference that is
+    drawn is named.
+
+    The anchors are gridlines, not a rule layer, because a gridline that no longer
+    fits the domain simply is not drawn: filtering the page rescales the references
+    with the marks (a rule *mark* would stretch the domain to reach itself), and a
+    culled gridline takes its name with it."""
     label = "".join(
-        f"datum.value === {v} ? '{text}' : " for v, text in _anchor_labels(anchors, span)
+        f"datum.value === {value} ? "
+        + "["
+        + ", ".join(f"'{s}'" for s in [""] * i + [name])
+        + "] : "
+        for i, (value, name) in enumerate(anchors)
     )
     return {
-        **axis,
+        "orient": "bottom",
+        "title": None,
         "grid": True,
         "gridDash": [1, 3],
         "gridOpacity": 0.4,
         "gridColor": "currentColor",
         "values": [v for v, _ in anchors],
         "labelExpr": f"{label}''",
+        "labelFontSize": 9,
+        "labelOpacity": 0.7,
+        "labelLineHeight": 11,
+        "labelPadding": 14,
+        "labelOverlap": False,
+        "ticks": False,
+        "domain": False,
     }
+
+
+def _axis_carriers(y: dict, heading: dict, anchors: tuple | None) -> list[dict]:
+    """Invisible layers whose only job is to carry one axis each. A vega-lite layer
+    defines at most one x axis, and a grid column needs up to three on one shared
+    scale (heading on top, numeric scale below, anchor references below that) — so
+    the extra axes ride zero-opacity point marks. The carrier's y is the data
+    layers' own y (same sort), or the merged y scale would carry conflicting sorts
+    — and a carrier with *no* y breaks the step-sized facet outright (vega-lite
+    6.4.1 emits a duplicate `height` signal). It must not touch the y *axis*
+    though: an explicit `axis: None` wins the layer merge and strips the lane
+    labels off the column that has them. Layers may not resolve the x axis
+    `independent` either — same faceted-layer bug — but distinct per-layer axis
+    objects on one shared scale coexist without it."""
+    carrier = {"mark": {"type": "point", "opacity": 0}}
+    layers = [
+        {
+            **carrier,
+            "encoding": {
+                "y": y,
+                "x": {"field": "value", "type": "quantitative", "axis": heading},
+            },
+        }
+    ]
+    if anchors:
+        layers.append(
+            {
+                **carrier,
+                "encoding": {
+                    "y": y,
+                    "x": {"field": "value", "type": "quantitative", "axis": _anchor_axis(anchors)},
+                },
+            }
+        )
+    return layers
 
 
 def _grid_tooltip(metric: str) -> list[dict]:
     """One cell's numbers on hover — and nothing else. Which lane, machine, model and
     device class a row belongs to is already on the screen (the lane is the y-axis
     label, the rest are the control row's selections), so a tooltip carries only what
-    the marks cannot: for a range metric, each end of the sweep *with the depth it was
-    measured at* — the range is unreadable without them — and the job's own value with
-    how deep its prompt was."""
+    the marks cannot: for a range metric, each end of the sweep *with the depth it
+    was measured at* — the range is unreadable without them."""
     if metric not in RANGE_METRICS:
         return [{"field": "value", "title": "value"}]
-    return [
-        {"field": "sweep_str", "title": "sweep (tok/s)"},
-        {"field": "job_str", "title": "job (tok/s)"},
-    ]
+    return [{"field": "sweep_str", "title": "tok/s over depth"}]
 
 
 def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict:
@@ -721,48 +710,46 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
     carries one number, which is also the contrast relief the palette needs.
 
     The two `RANGE_METRICS` columns draw an interval — the range the sweep measured
-    from its shallowest to its deepest context depth — with a filled dot on the
-    validation job's value at its own prompt depth. The interval covers the dot, so
-    the pair reads as one lane rather than two rival numbers, and a cell the sweep
-    never reached shows the dot alone. The value label rides that dot, which is the
-    mark whose number it prints. `init` keeps a plain bar. A cell that measured
-    nothing carries its italic status note in one column (`_grid_rows`); a cell whose
-    sweep produced points but whose job did not draws the interval and no number, so
-    nothing in the row reads as a measurement the job never made.
+    from its shallowest to its deepest context depth — and print its two ends at
+    the interval's edge. `init` keeps a plain bar with its value at the end. The
+    validation job appears nowhere here: what it measured against what the
+    calculator predicts is the accuracy section's story. A cell that measured
+    nothing carries its italic status note in one column (`_grid_rows`); a cell
+    whose sweep produced points but whose job did not draws the interval and the
+    note says it is the job that failed, so nothing in the row reads as a
+    measurement the job never made.
 
-    A column's heading is its x-axis title, and the reading-speed references are that
-    axis's gridlines (see `_metric_axis`) — so both sit over the plot area and both
-    react to the controls. Vega-lite merges the axes of layers sharing a scale, so
-    exactly one layer per column carries the axis objects: the one that anchors the
-    scale (the interval's rule, or the bar)."""
+    A column's heading sits over the plot area (`_heading_axis`), its scale under it
+    (`_value_axis`), and the reading-speed references are gridlines named under that
+    scale (`_anchor_axis`) — all on one shared x scale, the extra axes carried by
+    invisible layers (`_axis_carriers`)."""
     y = {
         "field": "lane",
         "type": "nominal",
         "title": None,
         "sort": {"field": "rank", "op": "min", "order": "ascending"},
     }
-    job = _job_depth(rows)
-    spans = _metric_spans(rows)
     columns = []
-    for i, (metric, title, fmt, subtitle) in enumerate(METRICS):
+    for i, (metric, title, subtitle) in enumerate(METRICS):
         labelled = i == 0  # band + lane labels once, on the left
-        if subtitle and "{job}" in subtitle:
-            subtitle = subtitle.format(job=job) if job else None
         tooltip = _grid_tooltip(metric)
         y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11} if labelled else None}
-        x_axis = _metric_axis(title, subtitle, READING_ANCHORS.get(metric), spans.get(metric))
+        heading = _heading_axis(title, subtitle)
         color = {
             "field": "lane",
             "type": "nominal",
             "legend": None,
             "scale": _lane_scale(lanes, LANE_COLORS),
         }
-        text = {"type": "text", "align": "left", "dx": 4, "fontSize": 10}
-        note = {**text, "fontStyle": "italic", "opacity": 0.65}
+        note = {
+            "type": "text",
+            "align": "left",
+            "fontSize": 10,
+            "fontStyle": "italic",
+            "opacity": 0.65,
+        }
+        text = {"type": "text", "align": "left", "fontSize": 10}
         if metric in RANGE_METRICS:
-            # Both things a label can sit next to — the job's dot and the rule's
-            # round cap — are about 4px of radius, so the gutter has to clear that.
-            edge = {**text, "dx": 9}
             layer = [
                 # A rule carries no zero the way a bar does; ask for it, or a lane
                 # whose whole range sits high would read as if it started there.
@@ -780,46 +767,31 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
                             "field": "lo",
                             "type": "quantitative",
                             "scale": {"zero": True},
-                            "axis": x_axis,
+                            "axis": _value_axis(),
                         },
                         "x2": {"field": "hi"},
                         "color": color,
                         "tooltip": tooltip,
                     },
                 },
+                # The interval's two ends, printed at its edge — cleared of the
+                # rule's ~4px round cap by dx.
                 {
-                    "transform": [{"filter": "datum.value !== null"}],
-                    "mark": {
-                        "type": "point",
-                        "filled": True,
-                        "size": 46,
-                        "stroke": "currentColor",
-                        "strokeWidth": 1,
-                    },
+                    "transform": [{"filter": "datum.range_label !== null"}],
+                    "mark": {**text, "dx": 9},
                     "encoding": {
                         "y": y,
-                        "x": {"field": "value", "type": "quantitative"},
-                        "color": color,
-                        "tooltip": tooltip,
-                    },
-                },
-                # The number the job measured, on the dot that marks it. Only a cell
-                # that scored one gets a label at all: the sweep's deep end is a
-                # measurement of the sweep, not of the job, and printing it here
-                # would read as the number the cell failed to produce.
-                {
-                    "transform": [{"filter": "datum.value !== null"}],
-                    "mark": edge,
-                    "encoding": {
-                        "y": y,
-                        "x": {"field": "value", "type": "quantitative"},
-                        "text": {"field": "value", "format": fmt},
+                        "x": {"field": "label_x", "type": "quantitative", "axis": None},
+                        "text": {"field": "range_label"},
                     },
                 },
                 {
                     "transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
                     "mark": {"type": "point", "opacity": 0},
-                    "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "headroom", "type": "quantitative", "axis": None},
+                    },
                 },
                 {
                     "transform": [
@@ -829,7 +801,7 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
                     "mark": {**note, "dx": 9},
                     "encoding": {
                         "y": y,
-                        "x": {"field": "note_x", "type": "quantitative"},
+                        "x": {"field": "note_x", "type": "quantitative", "axis": None},
                         "text": {"field": "note"},
                     },
                 },
@@ -840,35 +812,39 @@ def _grid_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> dict
                     "mark": {"type": "bar", "height": 9, "cornerRadiusEnd": 3},
                     "encoding": {
                         "y": y_axis,
-                        "x": {"field": "value", "type": "quantitative", "axis": x_axis},
+                        "x": {"field": "value", "type": "quantitative", "axis": _value_axis()},
                         "color": color,
                         "tooltip": tooltip,
                     },
                 },
                 {
                     "transform": [{"filter": "datum.value !== null"}],
-                    "mark": text,
+                    "mark": {**text, "dx": 4},
                     "encoding": {
                         "y": y,
-                        "x": {"field": "value", "type": "quantitative"},
-                        "text": {"field": "value", "format": fmt},
+                        "x": {"field": "value", "type": "quantitative", "axis": None},
+                        "text": {"field": "value", "format": ".1f"},
                     },
                 },
                 {
                     "transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
                     "mark": {"type": "point", "opacity": 0},
-                    "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+                    "encoding": {
+                        "y": y,
+                        "x": {"field": "headroom", "type": "quantitative", "axis": None},
+                    },
                 },
                 {
                     "transform": [{"filter": "datum.note !== null"}],
-                    "mark": note,
+                    "mark": {**note, "dx": 4},
                     "encoding": {
                         "y": y,
-                        "x": {"datum": 0, "type": "quantitative"},
+                        "x": {"datum": 0, "type": "quantitative", "axis": None},
                         "text": {"field": "note"},
                     },
                 },
             ]
+        layer += _axis_carriers(y, heading, READING_ANCHORS.get(metric))
         columns.append(
             {
                 "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
@@ -940,17 +916,17 @@ def _workload(p: dict) -> str:
 
 
 def _task_geometry(sweeps: pd.DataFrame) -> dict[tuple, dict]:
-    """Per cell, what the calculator needs from the sweep besides the fitted
-    parameters: how the prefill pass was dispatched and how far the two phases
-    reached.
+    """Per cell, the two measured cost curves the calculator prices tasks from,
+    and how far each was measured.
 
-    `w` is the widest chunk the instrumented pass dispatched. The pass walks
-    full-width chunks and then narrower ragged ones, and the fit is taken over the
-    full-width ones — so the widest chunk is the width the fit's intercept belongs
-    to. Chunk sizes are the gaps between consecutive cumulative depths, which is what
-    `load_sweeps` carries. `pre_max` / `kv_max` are the deepest prompt and the
-    deepest fill anything was measured at: past them the page still evaluates the cost
-    functions, and marks what it prints as an estimate."""
+    `curve` is the sweep's own cumulative time to first token over prompt depth:
+    `[depth, ms]` pairs ascending from the `[0, 0]` origin, one per instrumented
+    chunk boundary. It is the measurement itself, not a fit of it — the page
+    interpolates between the points, so a prompt inside the measured range costs
+    what the sweep clocked for that depth, nonlinearities and all. `ladder` is the
+    decode side: `(fill, tok/s)` pairs ascending. `pre_max` / `kv_max` are the
+    deepest prompt and the deepest fill measured: past them the page carries each
+    curve's last measured rate onward and marks what it prints as an estimate."""
     out: dict[tuple, dict] = {}
     if sweeps.empty:
         return out
@@ -958,9 +934,8 @@ def _task_geometry(sweeps: pd.DataFrame) -> dict[tuple, dict]:
     if "ttft_ms" in sweeps:
         pre = sweeps[(sweeps.kind == "prefill") & sweeps.ttft_ms.gt(0)]
         for cell, g in pre.groupby(key, sort=False):
-            depths = sorted(int(t) for t in g.tokens)
-            chunks = [b - a for a, b in zip([0, *depths[:-1]], depths, strict=True)]
-            out.setdefault(cell, {}).update(w=max(chunks), pre_max=depths[-1])
+            points = sorted([int(p.tokens), round(float(p.ttft_ms), 1)] for p in g.itertuples())
+            out.setdefault(cell, {}).update(curve=[[0, 0], *points], pre_max=points[-1][0])
     if "tps_p50" in sweeps:
         dec = sweeps[(sweeps.kind == "decode") & sweeps.tps_p50.gt(0)]
         for cell, g in dec.groupby(key, sort=False):
@@ -970,43 +945,32 @@ def _task_geometry(sweeps: pd.DataFrame) -> dict[tuple, dict]:
 
 
 def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
-    """Everything the page needs to price a task, per (lane, model): the prefill cost
-    function, the decode ladder, the once-per-launch costs, and the validation job's
-    own numbers to check the arithmetic against.
+    """Everything the page needs to price a task, per (lane, model): the measured
+    prefill curve, the decode ladder, the once-per-launch costs, and the validation
+    job's own numbers to check the arithmetic against.
 
     This is a data pack, not a set of chart rows — the page evaluates it, so a preset
     and a hand-typed configuration go through exactly one code path (`assets/tasks.js`)
-    and no reload. The fit is two parameters plus its quality, kept so the page can
-    say when a prediction rests on a loose fit. `ladder` is (fill, tok/s) pairs
-    ascending; a lane the sweep only reached once has one pair, and the page holds
-    that rate flat rather than inventing a slope. `n_ctx_train` is the model's own
-    trained context — the one configuration the page refuses outright, because past
-    the *sweep's* depth there is still a fit to evaluate and an estimate to mark.
+    and no reload. Both cost curves are the sweep's measured points, never a fit of
+    them: `curve` is cumulative time to first token over depth, `ladder` is (fill,
+    tok/s) pairs, both ascending — inside the measured range a prediction is the
+    measurement, interpolated, so a lane's own nonlinearity (thermal sag, bandwidth
+    saturation) prices itself. Past either curve's end the page carries the last
+    measured rate onward and marks the number as an estimate. `n_ctx_train` is the
+    model's own trained context — the one configuration the page refuses outright,
+    because past the *sweep's* depth there is still a curve to carry onward.
 
-    A cell with neither a fit nor a ladder is dropped: there is nothing to evaluate,
-    and the Results grid above already carries the reason it measured nothing."""
+    A cell with neither curve is dropped: there is nothing to evaluate, and the
+    Results grid above already carries the reason it measured nothing."""
     geo = _task_geometry(sweeps)
     rank = _speed_rank(df)
     records = []
     for r in df.itertuples():
         cell = (r.machine, r.backend, r.provider, r.model, r.quant)
         g = geo.get(cell, {})
-        width = g.get("w")
-        b = _plain(getattr(r, "fit_intercept_ms", None), 3)
-        m = _plain(getattr(r, "fit_slope_ms_per_1k", None), 4)
-        fit = (
-            {
-                "w": int(width),
-                "b": b,
-                "m": m,
-                "r2": _plain(getattr(r, "fit_r2", None), 5),
-                "resid": _plain(getattr(r, "fit_resid_max_pct", None), 2),
-            }
-            if width and b is not None and m is not None
-            else None
-        )
+        curve = g.get("curve") or []
         ladder = g.get("ladder") or []
-        if fit is None and not ladder:
+        if not curve and not ladder:
             continue
         measured = None
         if r.status == "ok":
@@ -1019,8 +983,8 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
             # plus half its reply). It joins the ladder as a point: on the slow
             # lanes whose sweep reached one deep fill this is the difference
             # between interpolating and holding an 8 tok/s rate against a job
-            # that measured 20 — see NOCOMMIT U10. On such lanes the summarize
-            # dot then checks prefill only; the generation point *is* the job.
+            # that measured 20. It is also why the accuracy section never grades
+            # generation alone: on such lanes the generation point *is* the job.
             ttft, comp = (getattr(r, "ttft_ms_p50", None), getattr(r, "completion_ms_p50", None))
             ptps, dtps = (getattr(r, "prefill_tps_p50", None), measured["tps"])
             if all(v is not None and v == v for v in (ttft, comp, ptps, dtps)):
@@ -1051,7 +1015,7 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
                 "quant": r.quant,
                 "backend": r.backend,
                 "rank": rank.get((r.model, r.lane), len(rank)),
-                "fit": fit,
+                "curve": curve,
                 "pre_max": g.get("pre_max"),
                 "ladder": ladder,
                 "kv_max": g.get("kv_max"),
@@ -1071,18 +1035,16 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
 
 
 def _task_tooltip() -> list[dict]:
-    """One predicted cell on hover: its number, the one-line reason it is marked as an
-    estimate or has no number at all, and the quality of the fit underneath it. The
-    configuration is already in the controls row and the lane is the axis label, so
-    neither is repeated. The reason is a label, never a sentence — what a half-lit bar
-    means is explained once in the section's copy, where a reader can actually read it,
-    and there is exactly one reason row because a column either has a number resting on
-    something or has no number at all."""
+    """One predicted cell on hover: its number, and the one-line reason it is marked
+    as an estimate or has no number at all. The configuration is already in the
+    controls row and the lane is the axis label, so neither is repeated. The reason
+    is a label, never a sentence — what a half-lit bar means is explained once in
+    the section's copy, where a reader can actually read it, and there is exactly
+    one reason row because a column either has a number resting on something or has
+    no number at all."""
     return [
         {"field": "value_label", "title": "value"},
         {"field": "why", "title": "note"},
-        {"field": "r2", "title": "prompt fit r²"},
-        {"field": "resid", "title": "worst chunk residual (%)"},
     ]
 
 
@@ -1091,20 +1053,18 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
     columns of seconds-for-a-task, and no data of its own — `assets/tasks.js` fills
     the named `tasks` set from the pack whenever a control moves.
 
-    Layout idioms come from the measured grid (heading as the x-axis title over the
-    plot area, band and lane labels on the leftmost column only, value label then
-    headroom, italic note at the axis where there is no number). What is different is
-    what this chart is: every bar is computed, not measured. So a bar whose prediction
-    rests on something thin — a single measured fill, a loose prefill fit, a depth past
-    the one the sweep reached — is drawn at half ink and its label wears a `~`. A row
-    draws no bar only where there is nothing to evaluate: no cost function on the lane,
-    or a task past the model's own trained context. Hue is still the lane's, which is
-    why the estimate marking is opacity: a value condition carries no scale, so it adds
-    no second legend to read.
-
-    The read-&-summarize task turns on a dot per lane at the validation job's own
-    measured number, in the lane's color — prediction and measurement of the same
-    task, in the same row.
+    Layout idioms come from the measured grid (heading over the plot area, numeric
+    scale and anchor references below it, band and lane labels on the leftmost
+    column only, value printed at the bar's end, italic note at the axis where
+    there is no number). What is different is what this chart is: every bar is
+    computed, not measured. So a bar whose prediction rests on something thin — a
+    single measured fill, a loose prefill fit, a depth past the one the sweep
+    reached — is drawn at half ink and its label wears a `~`. A row draws no bar
+    only where there is nothing to evaluate: no cost function on the lane, or a
+    task past the model's own trained context. Hue is still the lane's, which is
+    why the estimate marking is opacity: a value condition carries no scale, so it
+    adds no second legend to read. How these predictions compare to a measurement
+    is the accuracy section's story (`_accuracy_spec`), not a mark here.
 
     Column titles here are the first task's; the page swaps them (and the middle
     column's reading-speed gridlines, meaningless when that column is seconds) when
@@ -1123,18 +1083,16 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
     ):
         labelled = i == 0
         y_axis = {**y, "axis": {"labelLimit": 200, "labelFontSize": 11} if labelled else None}
-        # Generation carries a reading-speed anchor (see TASK_ANCHORS);
+        # Generation carries reading-speed anchors (see TASK_ANCHORS);
         # seconds-for-a-task has no reading-speed equivalent. The trimmed tick format
         # is for the moment before the page's first insert, when the domain is empty
         # and vega would otherwise derive six decimals of precision for a lone zero.
-        x_axis = {**_metric_axis(title, subtitle, TASK_ANCHORS.get(metric)), "format": "~r"}
         color = {
             "field": "lane",
             "type": "nominal",
             "legend": None,
             "scale": _lane_scale(lanes, LANE_COLORS),
         }
-        text = {"type": "text", "align": "left", "dx": 9, "fontSize": 10}
         columns.append(
             {
                 "transform": [{"filter": f"datum.metric === '{metric}'"}, *_filters(controls)],
@@ -1167,7 +1125,7 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
                                     "field": "value",
                                     "type": "quantitative",
                                     "scale": {"zero": True},
-                                    "axis": x_axis,
+                                    "axis": _value_axis("~r"),
                                 },
                                 "color": color,
                                 "opacity": {
@@ -1177,52 +1135,44 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
                                 "tooltip": tooltip,
                             },
                         },
-                        # The dot is a measurement, not a prediction, so it answers for itself:
-                        # the fit quality behind the bar has nothing to do with it.
-                        {
-                            "transform": [{"filter": "datum.measured !== null"}],
-                            "mark": {
-                                "type": "point",
-                                "filled": True,
-                                "size": 46,
-                                "stroke": "currentColor",
-                                "strokeWidth": 1,
-                            },
-                            "encoding": {
-                                "y": y,
-                                "x": {"field": "measured", "type": "quantitative"},
-                                "color": color,
-                                "tooltip": [
-                                    {"field": "measured_label", "title": "measured, this column"}
-                                ],
-                            },
-                        },
+                        # The value at the bar's end: a string the page's arithmetic
+                        # writes ("2 min 14 s"), with its ~ when it is an estimate.
                         {
                             "transform": [{"filter": "datum.label !== null"}],
-                            "mark": text,
+                            "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
                             "encoding": {
                                 "y": y,
-                                "x": {"field": "label_x", "type": "quantitative"},
+                                "x": {"field": "value", "type": "quantitative", "axis": None},
                                 "text": {"field": "label"},
                             },
                         },
                         {
-                            "transform": [{"calculate": "datum.label_x * 1.16", "as": "headroom"}],
+                            "transform": [{"calculate": "datum.value * 1.16", "as": "headroom"}],
                             "mark": {"type": "point", "opacity": 0},
                             "encoding": {
                                 "y": y,
-                                "x": {"field": "headroom", "type": "quantitative"},
+                                "x": {"field": "headroom", "type": "quantitative", "axis": None},
                             },
                         },
                         {
                             "transform": [{"filter": "datum.note !== null"}],
-                            "mark": {**text, "dx": 4, "fontStyle": "italic", "opacity": 0.65},
+                            "mark": {
+                                "type": "text",
+                                "align": "left",
+                                "dx": 4,
+                                "fontSize": 10,
+                                "fontStyle": "italic",
+                                "opacity": 0.65,
+                            },
                             "encoding": {
                                 "y": y,
-                                "x": {"datum": 0, "type": "quantitative"},
+                                "x": {"datum": 0, "type": "quantitative", "axis": None},
                                 "text": {"field": "note"},
                             },
                         },
+                        *_axis_carriers(
+                            y, _heading_axis(title, subtitle), TASK_ANCHORS.get(metric)
+                        ),
                     ],
                 },
             }
@@ -1233,6 +1183,128 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
         "params": _params(controls),
         "hconcat": columns,
         "spacing": 26,
+        "config": {"view": {"stroke": None}, "axis": {"grid": False}},
+    }
+
+
+# The two quantities the calculator is graded on, in chart order (the group order
+# and the opacity domain, so the solid bar is always time to first token).
+# Generation alone is deliberately not one of them: the job's own rate joins a
+# lane's decode ladder where the sweep ran thin (`_task_pack`), so scoring it
+# would compare the job to itself. `assets/tasks.js` builds the rows with these
+# exact phase strings — keep the two sides in step.
+ACCURACY_PHASES = ("time to first token", "whole task")
+
+
+def _accuracy_spec(controls: list[dict], lanes: list[str]) -> dict:
+    """How far the calculator lands from the validation job, per lane: signed
+    percent error, one bar per graded phase, computed in the page (the same
+    `assets/tasks.js` arithmetic that fills the task grid prices the job's own
+    shape and reads it against the job's measurements — `accuracyRows`).
+
+    Zero — prediction equals measurement — is a rule down the middle; bars grow
+    right where the prediction is slower than the machine really was, left where
+    it is faster. The label at each bar's end is the signed error; hover carries
+    the two numbers it was computed from. Unfaceted like the launch chart: the
+    lanes here are the ones whose job scored, and the two phases already double
+    every row."""
+    y = {
+        "field": "lane",
+        "type": "nominal",
+        "title": None,
+        "sort": {"field": "rank", "op": "min", "order": "ascending"},
+        # the grid's lane-label idiom: names only, no domain spine or ticks
+        "axis": {"labelLimit": 200, "labelFontSize": 11, "domain": False, "ticks": False},
+    }
+    offset = {"field": "phase", "type": "nominal", "scale": {"domain": list(ACCURACY_PHASES)}}
+    color = {
+        "field": "lane",
+        "type": "nominal",
+        "legend": None,
+        "scale": _lane_scale(lanes, LANE_COLORS),
+    }
+    # `opacity` carries the phase and its bottom legend is the key — the same
+    # idiom (and the same vega-lite 6.4.1 fillOpacity caveat) as `_launch_spec`.
+    opacity = {
+        "field": "phase",
+        "type": "nominal",
+        "scale": {"domain": list(ACCURACY_PHASES), "range": [1, 0.55]},
+        "legend": {
+            "orient": "bottom",
+            "title": None,
+            "symbolType": "square",
+            "symbolFillColor": "currentColor",
+            "symbolStrokeWidth": 0,
+        },
+    }
+    tooltip = [
+        {"field": "pred_label", "title": "predicted"},
+        {"field": "meas_label", "title": "measured"},
+    ]
+    x = {
+        "field": "err_pct",
+        "type": "quantitative",
+        "title": None,
+        "scale": {"zero": True},
+        "axis": _value_axis("~r"),  # the grids' numeric-scale idiom
+    }
+    bare_x = {k: v for k, v in x.items() if k != "axis"}  # only one layer may define it
+    return {
+        "$schema": VL_SCHEMA,
+        "title": {
+            "text": "prediction error (%)",
+            "anchor": "start",
+            "subtitle": "right of zero: predicted slower than the job measured",
+            "fontSize": 12,
+            "subtitleFontSize": 10,
+        },
+        "data": {"name": "accuracy"},  # filled by assets/tasks.js, never at build time
+        "params": _params(controls),
+        "transform": _filters(controls),
+        "width": 400,
+        "height": {"step": 30},
+        "layer": [
+            {
+                "mark": {"type": "bar", "height": 11, "cornerRadiusEnd": 3},
+                "encoding": {
+                    "y": y,
+                    "yOffset": offset,
+                    "x": x,
+                    "color": color,
+                    "opacity": opacity,
+                    "tooltip": tooltip,
+                },
+            },
+            # One row of its own data, or the rule would draw once per accuracy
+            # row and the overdraw would read as a solid spine.
+            {
+                "data": {"values": [{}]},
+                "mark": {"type": "rule", "color": "currentColor", "opacity": 0.3},
+                "encoding": {"x": {"datum": 0, "type": "quantitative"}},
+            },
+            # The signed error at the bar's end, on whichever side of zero the bar
+            # grew — alignment and clearance flip with the sign.
+            {
+                "mark": {
+                    "type": "text",
+                    "fontSize": 10,
+                    "align": {"expr": "datum.err_pct < 0 ? 'right' : 'left'"},
+                    "dx": {"expr": "datum.err_pct < 0 ? -4 : 4"},
+                },
+                "encoding": {
+                    "y": y,
+                    "yOffset": offset,
+                    "x": bare_x,
+                    "text": {"field": "err_label"},
+                },
+            },
+            # Room past both ends, so a label never clips at the domain edge.
+            {
+                "transform": [{"calculate": "datum.err_pct * 1.35", "as": "headroom"}],
+                "mark": {"type": "point", "opacity": 0},
+                "encoding": {"y": y, "x": {"field": "headroom", "type": "quantitative"}},
+            },
+        ],
         "config": {"view": {"stroke": None}, "axis": {"grid": False}},
     }
 
@@ -2412,6 +2484,11 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
             context["tasks"] = True
             context["task_pack"] = pack
             context["task_list"] = pack["tasks"]
+            # The accuracy chart needs a measurement to grade against: at least
+            # one lane whose validation job scored.
+            if any(rec["measured"] for rec in pack["records"]):
+                specs["accuracy"] = _accuracy_spec(controls, lanes)
+                context["accuracy"] = True
 
         launch_rows = _launch_rows(df)
         if launch_rows:

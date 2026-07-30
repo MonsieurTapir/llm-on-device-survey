@@ -47,16 +47,11 @@
     machine — and its color is that lane's, the same color it has in the cost
     curves below. The bands are device classes; inside a band, lanes are sorted
     by generation speed. Both tok/s rates fall as the context fills, so a lane
-    spans the range the sweep measured across depth; the dot is the validation
-    job's own number, at a prompt of about 1,550 tokens, and the label reads it
-    out. A lane the sweep reached at one depth only spans that point and the dot.
-    Hover a row for both ends of the range with the depths they were measured at.
-    The dotted lines on the two tok/s columns are
-    reading-speed references, ascending from the left: on generation, silent reading
-    (5 tok/s) then a paragraph a second (130); on prompt reading, a paragraph a
-    second (130), a page a second (400), then a book a minute (1,700). A reference
-    is drawn only where it fits the current scale, and names itself on the chart
-    wherever the name fits beside its neighbour.</p>
+    spans the range the sweep measured across depth — deep end slow, empty end
+    fast — and the numbers at the end read the two ends out. Hover a row for
+    those ends with the depths they were measured at. The dotted lines on the
+    two tok/s columns are reading-speed references, each named under the axis; a
+    reference is drawn only where it fits the current scale.</p>
   {% if controls %}
   <div class="controls" id="controls">
     {% for c in controls %}
@@ -78,25 +73,24 @@
 <section>
   <h2>What a task costs</h2>
   <p class="fine">The same lanes, in seconds for the task below. Nothing here is a
-    new measurement: each bar is the sweep's own cost functions evaluated for that
-    configuration, and past the depth a lane was measured at they are evaluated
-    anyway and the bar is marked as an estimate — the only wall is the context the
-    model itself was trained for. Pick a task or type your own; the model and device
-    selectors above scope this chart too.</p>
+    new measurement: each bar reads the sweep's own measured cost curves for that
+    configuration, and past the depth a lane was measured at the last measured rate
+    is carried on and the bar is marked as an estimate — the only wall is the
+    context the model itself was trained for. Pick a task or type your own; the
+    model and device selectors above scope this chart too.</p>
   <details class="fine">
     <summary>How to read these bars</summary>
-    <p>The prompt is priced chunk by chunk at the depth each chunk starts from, and
-      the reply is integrated over the generation rate as the context fills, so a long
-      reply is never priced at its opening rate. A half-lit bar with a <code>~</code>
-      label rests on something thin: a lane whose sweep reached a single fill, a prompt
-      fit the measured chunks scattered around, or a task deeper than the sweep went —
-      there the prompt fit is evaluated past its evidence and the generation rate is
-      held at the deepest fill measured, which may still be optimistic. A row with no
-      bar has nothing to evaluate: either the lane measured no cost function, or the
-      task does not fit the model's trained context. The dotted lines on the generation
-      column are the reading-speed references from above — silent reading (5 tok/s) and
-      a paragraph a second (130). Hover any row for the fit quality behind it and for
-      what an estimate rests on.</p>
+    <p>The prompt is priced off the sweep's measured time-to-first-token curve —
+      what the sweep itself clocked to reach that depth, interpolated between its
+      points — and the reply is integrated over the measured generation rate as the
+      context fills, so a long reply is never priced at its opening rate. A half-lit
+      bar rests on something thin: a lane whose sweep reached a single fill, or a
+      task deeper than the sweep went — there each curve's last measured rate is
+      carried on past its evidence, which may still be optimistic. A row with no bar
+      has nothing to evaluate: either the lane measured no curve, or the task does
+      not fit the model's trained context. The dotted lines on the generation column
+      are the reading-speed references from above. Hover any row for its value —
+      estimates wear a <code>~</code> — and what an estimate rests on.</p>
   </details>
   <div class="controls" id="task-controls">
     <label>task
@@ -122,6 +116,24 @@
   </div>
   <p class="fine" id="task-note"></p>
   <div class="island" data-spec="tasks"></div>
+</section>
+{% endif %}
+
+{% if accuracy %}
+<section>
+  <h2>How accurate are those predictions?</h2>
+  <p class="fine">Every submission runs one fixed validation job — a 1,550-token
+    prompt and a 256-token reply from an empty context — and the calculator above
+    prices that same shape from the sweep's measured curves alone. Each bar is how
+    far the prediction lands from what the job measured on that lane: time to
+    first token checks the prompt pricing, the whole task adds generation and
+    reads the bottom line. What is left in these bars is mostly how differently
+    the two runs were measured — the sweep is one long instrumented pass, the job
+    a short burst — since inside the measured range the prediction is the sweep's
+    own clock. Generation is not graded on its own, because on lanes whose sweep
+    reached a single fill the job's own rate is part of the decode ladder, and the
+    comparison would not be independent.</p>
+  <div class="island" data-spec="accuracy"></div>
 </section>
 {% endif %}
 

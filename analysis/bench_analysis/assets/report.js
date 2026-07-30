@@ -125,20 +125,27 @@
   /* The task grid's column titles belong to the selected task (a chat turn and a
    * background job answer different questions), and its middle column is a rate for
    * the watched tasks but seconds for the background one — where the reading-speed
-   * gridlines would be noise. The spec is re-parsed fresh on every mount, so the
-   * patch is idempotent: swap each column's axis title, and strip the anchor
-   * gridlines when the middle column is not a rate. */
+   * references would be noise. The spec is re-parsed fresh on every mount, so the
+   * patch is idempotent: retitle each column's heading axis (the orient-top
+   * carrier), and drop the anchor-carrier layer (the one with explicit axis
+   * values) when the middle column is not a rate. */
   function patchTaskSpec(spec, task) {
     if (!task || !spec.hconcat) return spec;
+    function xAxis(layer) {
+      return layer.encoding && layer.encoding.x && layer.encoding.x.axis;
+    }
     spec.hconcat.forEach(function (col, i) {
-      var axis = col.spec.layer[0].encoding.x.axis;
       var titled = task.columns[i];
-      axis.title = titled[1] ? [titled[0], titled[1]] : titled[0];
-      if (i === 1 && task.mid_unit !== "tps") {
-        axis.grid = false;
-        delete axis.values;
-        delete axis.labelExpr;
-      }
+      col.spec.layer.forEach(function (layer) {
+        var axis = xAxis(layer);
+        if (axis && axis.orient === "top")
+          axis.title = titled[1] ? [titled[0], titled[1]] : titled[0];
+      });
+      if (i === 1 && task.mid_unit !== "tps")
+        col.spec.layer = col.spec.layer.filter(function (layer) {
+          var axis = xAxis(layer);
+          return !(axis && axis.values);
+        });
     });
     return spec;
   }
@@ -237,10 +244,15 @@
     showFields(chosen);
     showWords();
     noteEl.textContent = (chosen && chosen.note) || "";
-    var rows = window.taskMath.taskRows(pack, taskParams());
+    /* The task grid follows the controls; the accuracy chart always grades the
+     * one fixed shape the job measured, so its rows never change — but a
+     * re-embed (dark mode) starts it empty, and refilling here covers both. */
+    var fills = { tasks: window.taskMath.taskRows(pack, taskParams()),
+                  accuracy: window.taskMath.accuracyRows(pack) };
     mounted.forEach(function (entry) {
-      if (entry.named !== "tasks") return;
-      entry.view.change("tasks", vega.changeset().remove(function () {
+      var rows = fills[entry.named];
+      if (!rows) return;
+      entry.view.change(entry.named, vega.changeset().remove(function () {
         return true;
       }).insert(rows));
       redraw(entry);

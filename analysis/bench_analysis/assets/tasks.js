@@ -2,17 +2,19 @@
  *
  * Pure functions over the pack `site._task_pack` embeds — no DOM, no vega, no
  * globals besides the one export. The pack carries, per (lane, model), the sweep's
- * prefill cost function, its decode ladder, and the once-per-launch costs; this
- * turns a task configuration into the three columns the chart draws.
+ * two measured cost curves — cumulative time to first token over depth, and the
+ * decode ladder — plus the once-per-launch costs; this turns a task configuration
+ * into the three columns the chart draws.
  *
- * Two rules run through all of it. Anything resting on thin evidence is marked as an
- * estimate rather than quietly averaged in — a lane whose ladder holds a single fill,
- * a prefill fit the chunks scattered around, or a depth past the one the sweep
- * reached. And a number is refused only where there is nothing to evaluate: a lane
- * that measured no cost function, or a task that does not fit the model's own trained
- * context. Past the sweep's deepest point the fit is still evaluated — its shape is
- * physical, a per-dispatch term plus a depth-linear one — and the generation rate is
- * held at the slowest fill actually measured, which is the conservative end.
+ * Both curves are measurements, never fits of them: inside the measured range a
+ * prediction is the sweep's own clock, interpolated, so a lane's nonlinearities
+ * price themselves. Anything resting on thin evidence is marked as an estimate
+ * rather than quietly averaged in — a lane whose ladder holds a single fill, or a
+ * depth past the one the sweep reached, where each curve's last measured rate is
+ * carried onward (the marginal cost was still rising everywhere measured, so that
+ * is the optimistic side and the mark says so). A number is refused only where
+ * there is nothing to evaluate: a lane that measured no curve, or a task that does
+ * not fit the model's own trained context.
  */
 window.taskMath = (function () {
   "use strict";
@@ -22,23 +24,16 @@ window.taskMath = (function () {
    * against a continuous integral is far under the spread of the measurement. */
   var STEP = 32;
 
-  /* A fit is only trusted this far. r² and the worst residual come straight from
-   * the harness; the prefill pass runs once by design, so scatter around the line
-   * is the only evidence a chunk was disturbed rather than real. */
-  var MIN_R2 = 0.98;
-  var MAX_RESID_PCT = 5;
-
   /* The two refusals and the marks. The refusals are facts about the model and the
    * lane — a task longer than the context the model was trained on, a lane whose sweep
-   * produced no cost function to evaluate. The marks say how far the evidence reached.
+   * measured no curve to evaluate. The marks say how far the evidence reached.
    * All of them are labels, not sentences: what a half-lit bar means is explained once,
    * in the section's own copy, and a hover is no place to read a paragraph. */
   var BEYOND_CTX = "beyond this model's context";
-  var NO_FIT = "no prompt cost function measured";
+  var NO_CURVE = "no prompt reading measured";
   var NO_LADDER = "no generation rate measured";
   var FLAT = "one measured fill";
   var HELD = "rate held at the deepest fill measured";
-  var LOOSE = "loose prompt fit";
 
   /* A token is about ¾ of a word — the only unit a reader has a feel for. Rounded to
    * a step that reads as the estimate it is: 25 words under 500, 50 under 2,000, 250
@@ -56,25 +51,35 @@ window.taskMath = (function () {
   /* Which task the configuration belongs to is the select's choice, never derived:
    * editing the token counts edits the selected task and it stays that task. */
 
-  /* Milliseconds to read `n` new tokens with `d0` tokens already in the cache.
-   *
-   * The pass dispatches in chunks of the fit's own width, and the fit prices one
-   * full-width chunk at depth d as `b + m·d/1k` — a per-dispatch term plus the
-   * attention term over everything already there. So a prompt is the sum over its
-   * chunks, each at the depth it starts from, which is why the same `n` costs more
-   * deeper in: `d0 = depth` is a chat turn appending to a live cache, `d0 = 0` is a
-   * document read into an empty one. A trailing partial chunk is prorated by its
-   * token share (checked against the sweep's own ragged chunks: 1,593 ms predicted
-   * against 1,587 measured for a 256-token chunk at depth 1,024). */
-  function prefillMs(fit, d0, n) {
-    if (!fit || !(n > 0)) return null;
-    var total = 0, done = 0;
-    while (done < n) {
-      var chunk = Math.min(fit.w, n - done);
-      total += (fit.b + fit.m * (d0 + done) / 1000) * (chunk / fit.w);
-      done += chunk;
+  /* T(d): cumulative milliseconds to read a prompt to depth `d`, read straight off
+   * the sweep's measured curve — `[depth, ms]` pairs ascending from the harness's
+   * own `[0, 0]` origin — with linear interpolation between the measured points.
+   * Past the deepest point the last segment's per-token cost is carried onward:
+   * the marginal cost was still rising everywhere measured, so holding it is the
+   * optimistic side, and the caller marks anything that reaches out there. */
+  function cumMs(curve, d) {
+    if (!(d > 0)) return 0;
+    var last = curve[curve.length - 1];
+    if (d > last[0]) {
+      var prev = curve[curve.length - 2];
+      return last[1] + (d - last[0]) * (last[1] - prev[1]) / (last[0] - prev[0]);
     }
-    return total;
+    for (var i = 1; i < curve.length; i++) {
+      if (d <= curve[i][0]) {
+        var a = curve[i - 1], b = curve[i];
+        return a[1] + (d - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
+      }
+    }
+    return last[1];
+  }
+
+  /* Milliseconds to read `n` new tokens with `d0` tokens already in the cache:
+   * T(d0+n) − T(d0). The same `n` costs more deeper in because the curve steepens
+   * with depth — `d0 = depth` is a chat turn appending to a live cache, `d0 = 0`
+   * a document read into an empty one. */
+  function prefillMs(curve, d0, n) {
+    if (!curve || curve.length < 2 || !(n > 0)) return null;
+    return cumMs(curve, d0 + n) - cumMs(curve, d0);
   }
 
   /* Generation rate at a given cache fill: linear between the measured fills, flat
@@ -122,7 +127,7 @@ window.taskMath = (function () {
   function envelope(rec, p) {
     var deep = p.depth + p.prompt;
     return {
-      prefill: !!rec.fit && rec.pre_max !== null && deep <= rec.pre_max,
+      prefill: rec.curve.length > 1 && rec.pre_max !== null && deep <= rec.pre_max,
       decode: !!rec.ladder.length && rec.kv_max !== null
         && deep + p.out <= rec.kv_max,
       context: !(rec.n_ctx_train > 0) || deep + p.out <= rec.n_ctx_train,
@@ -150,15 +155,6 @@ window.taskMath = (function () {
     }
     var hours = Math.floor(s / 3600);
     return hours + " h " + Math.round((s - 3600 * hours) / 60) + " min";
-  }
-
-  /* Whether the prefill fit is loose enough that its prediction is an estimate. The
-   * numbers behind the verdict are two rows down in the same tooltip, so this says
-   * which side of the line the fit fell on and nothing more. */
-  function looseFit(fit) {
-    var loose = (fit.r2 !== null && fit.r2 < MIN_R2)
-      || (fit.resid !== null && fit.resid > MAX_RESID_PCT);
-    return loose ? LOOSE : null;
   }
 
   function round(value, digits) {
@@ -208,20 +204,17 @@ window.taskMath = (function () {
       var notePre = null, noteDec = null;
 
       if (!reach.context) {
-        /* The one wall: the model was never trained this far, so no cost function of
-         * ours has anything to say about it. Both columns carry the same fact, and the
-         * caller below prints it once. */
+        /* The one wall: the model was never trained this far, so no measurement of
+         * ours has anything to say about it. Both columns carry the same fact, and
+         * the caller below prints it once. */
         notePre = BEYOND_CTX;
         noteDec = BEYOND_CTX;
       } else {
-        if (!rec.fit) notePre = NO_FIT;
+        if (rec.curve.length < 2) notePre = NO_CURVE;
         else {
-          ttft = prefillMs(rec.fit, p.task === "chat" ? p.depth : 0, p.prompt) / 1000;
-          estPre = join([
-            reach.prefill ? null
-              : "past the measured " + depthLabel(rec.pre_max) + " tokens",
-            looseFit(rec.fit),
-          ]);
+          ttft = prefillMs(rec.curve, p.task === "chat" ? p.depth : 0, p.prompt) / 1000;
+          estPre = reach.prefill ? null
+            : "past the measured " + depthLabel(rec.pre_max) + " tokens";
         }
 
         if (!rec.ladder.length) noteDec = NO_LADDER;
@@ -249,14 +242,12 @@ window.taskMath = (function () {
                   total: join([estPre, estDec, noLoad]) };
       var value = { ttft: ttft, tps: background ? reply : rate, total: total };
       var note = { ttft: notePre, tps: noteDec, total: notePre || noteDec };
-      /* What a row carries is what the chart draws or filters on, plus the two things
-       * a mark cannot say: how good the fit under it was, and why its number is marked
-       * or missing. The configuration itself is in the controls row above the chart. */
+      /* What a row carries is what the chart draws or filters on, plus the one thing
+       * a mark cannot say: why its number is marked or missing. The configuration
+       * itself is in the controls row above the chart. */
       var shared = {
         lane: rec.lane, dev_class: rec.dev_class, model: rec.model,
         quant: rec.quant, backend: rec.backend, rank: rec.rank,
-        r2: dash(rec.fit ? rec.fit.r2 : null),
-        resid: dash(rec.fit ? rec.fit.resid : null),
       };
 
       /* A reason belongs to the lane, not to a column: "beyond this model's context"
@@ -270,25 +261,53 @@ window.taskMath = (function () {
         var v = round(value[metric], isRate ? 1 : 2);
         var measured = p.measured && rec.measured ? rec.measured[metric] : null;
         var dot = measured === undefined || measured === null ? null : measured;
+        /* The human-readable value, printed at the bar's end and repeated on
+         * hover — with its ~ when it is an estimate. */
         var label = v === null ? null
           : (est[metric] ? "~" : "")
             + (isRate ? String(Math.round(v)) : fmtSeconds(v));
-        /* The label rides past the far end of the row's ink, so it never prints over
-         * the measured dot when prediction and measurement nearly agree. */
-        var anchor = [v, dot].filter(function (n) { return n !== null; });
         var reason = v === null ? note[metric] : null;
         if (reason !== null && told.indexOf(reason) >= 0) reason = null;
         else if (reason !== null) told.push(reason);
         rows.push(Object.assign({}, shared, {
           metric: metric, value: v, label: label, value_label: dash(label),
-          label_x: anchor.length ? Math.max.apply(null, anchor) : null,
           /* `note` is the text the chart prints, once per lane. `why` is the same fact
            * for the column hover asks about — whichever applies there, since a column
-           * either carries a number resting on something or carries no number at all. */
+           * either carries a number resting on something or carries no number at all.
+           * `measured` never draws here — it is what accuracyRows grades against. */
           note: reason, est: !!est[metric],
           why: dash(est[metric] || note[metric]),
-          measured: dot, measured_label: dash(dot),
+          measured: dot,
         }));
+      });
+    });
+    return rows;
+  }
+
+  /* How the calculator scores against the one thing it can be checked on: the
+   * validation job's own shape, priced by the same arithmetic as every other
+   * task, read against the numbers the job actually measured. Generation is not
+   * graded on its own — where a sweep ran thin the job's rate is part of the
+   * lane's ladder (see the pack), so only time to first token (the prompt fit)
+   * and the whole task are independent enough to score. Phase strings match
+   * site.py's ACCURACY_PHASES — keep the two sides in step. */
+  function accuracyRows(pack) {
+    var task = null;
+    (pack.tasks || []).forEach(function (t) { if (t.measured) task = t; });
+    if (!task) return [];
+    var p = { task: task.key, depth: task.depth, prompt: task.prompt,
+              out: task.out, measured: true };
+    var phases = { ttft: "time to first token", total: "whole task" };
+    var rows = [];
+    taskRows(pack, p).forEach(function (r) {
+      if (!phases[r.metric] || r.value === null || r.measured === null) return;
+      var err = (r.value - r.measured) / r.measured * 100;
+      rows.push({
+        lane: r.lane, dev_class: r.dev_class, model: r.model, quant: r.quant,
+        backend: r.backend, rank: r.rank, phase: phases[r.metric],
+        err_pct: Math.round(err * 10) / 10,
+        err_label: (err < 0 ? "−" : "+") + Math.abs(err).toFixed(1) + "%",
+        pred_label: r.value_label, meas_label: fmtSeconds(r.measured),
       });
     });
     return rows;
@@ -297,6 +316,7 @@ window.taskMath = (function () {
   return {
     prefillMs: prefillMs, tpsAt: tpsAt,
     decodeSeconds: decodeSeconds, envelope: envelope, fmtSeconds: fmtSeconds,
-    depthLabel: depthLabel, taskRows: taskRows, words: words,
+    depthLabel: depthLabel, taskRows: taskRows, accuracyRows: accuracyRows,
+    words: words,
   };
 })();

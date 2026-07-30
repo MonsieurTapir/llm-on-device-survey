@@ -43,6 +43,8 @@ def test_build_renders_grid_curves_and_strict_json(tmp_path):
         "Machines",
         'data-spec="launch"',
         "First launch",
+        'data-spec="accuracy"',
+        "How accurate are those predictions?",
         'data-spec="memory-footprint"',
         'data-spec="memory-job"',
         "cmd-bash",
@@ -142,135 +144,92 @@ def _grid_columns(html: str) -> list[dict]:
     return json.loads(island.group(1))["hconcat"]
 
 
-def _anchor_layer(column: dict) -> dict:
-    """The one layer of a grid column that carries the x-axis object. Vega-lite
-    merges the axes of layers sharing a scale, so a second one breaks the heading."""
-    carriers = [layer for layer in column["spec"]["layer"] if "axis" in layer["encoding"]["x"]]
-    assert len(carriers) == 1, "exactly one layer may define the metric axis"
-    return carriers[0]
+def _x_axes(column: dict) -> dict[str, dict]:
+    """The x axes one grid column defines, by role: `heading` (orient top, title
+    only), `scale` (the plain numeric axis under the plot) and, where the column
+    has reading-speed references, `anchors` (explicit values). Each role exists at
+    most once — a duplicate would merge unpredictably on the shared scale."""
+    axes: dict[str, dict] = {}
+    for layer in column["spec"]["layer"]:
+        axis = layer["encoding"].get("x", {}).get("axis")
+        if not axis:
+            continue
+        role = "heading" if axis["orient"] == "top" else "anchors" if "values" in axis else "scale"
+        assert role not in axes, f"two {role} axes on one column"
+        axes[role] = axis
+    return axes
 
 
-def test_metric_heading_rides_the_x_axis_over_the_bars(tmp_path):
-    """The heading is the shared x axis's title, drawn from the top over the plot
-    area — never a concat title, which would span the lane-label gutter as well. The
-    two rate columns add the depth their dot was measured at, read off the rows: the
-    section below prices the same two quantities, so neither heading may float free
-    of the depth it belongs to."""
+def test_metric_heading_sits_over_the_plot_and_the_scale_under_it(tmp_path):
+    """The heading is a title-only top axis, drawn over the plot area — never a
+    concat title, which would span the lane-label gutter as well. The scale is an
+    ordinary numeric bottom axis with a domain line, riding the layer that anchors
+    the scale (the interval's rule, or the bar). The two rate columns' headings say
+    their ink spans context depth — a rate means nothing without the depth it
+    belongs to."""
     columns = _grid_columns(_build(tmp_path))
     assert len(columns) == len(site.METRICS)
-    for column, (metric, title, _, _) in zip(columns, site.METRICS, strict=True):
+    for column, (metric, title, _) in zip(columns, site.METRICS, strict=True):
         assert "title" not in column
-        anchor = _anchor_layer(column)
-        # Whichever mark anchors the scale carries the axis: the interval's rule on
-        # a range metric, the bar where there is still a bar.
-        assert anchor["mark"]["type"] == ("rule" if metric in site.RANGE_METRICS else "bar")
-        assert anchor is column["spec"]["layer"][0]
-        axis = anchor["encoding"]["x"]["axis"]
-        assert axis["orient"] == "top"
-        assert axis["titleAnchor"] == "start"
-        text = axis["title"]
+        axes = _x_axes(column)
+        heading, scale = axes["heading"], axes["scale"]
+        assert heading["titleAnchor"] == "start"
+        assert heading["labels"] is False and heading["domain"] is False
+        text = heading["title"]
         assert (text[0] if isinstance(text, list) else text) == title
         if metric in site.RANGE_METRICS:
-            # the fixtures' jobs sit at ~1,555 tokens, to the nearest half-thousand
-            assert text[1] == "dot: the ~1.5k-token job"
+            assert text[1] == "across context depth"
         else:
             assert text[1] == "lower is better"
-
-
-def test_a_shelf_whose_jobs_measured_no_depth_drops_the_depth_scope():
-    """The depth in the heading is derived, not assumed: with no job to read a prompt
-    depth off, the two rate columns say nothing about depth rather than a made-up
-    number, and the heading stays a bare title."""
-    assert site._job_depth([{"job_at": None}, {}]) is None
-    assert site._job_depth([{"job_at": 1557}, {"job_at": 1553}]) == "~1.5k"
-    assert site._job_depth([{"job_at": 4096}]) == "~4k"
-
-    rows = [
-        {
-            "lane": "l",
-            "dev_class": "CPU",
-            "metric": m,
-            "value": 1.0,
-            "note": None,
-            "rank": 0,
-            "model": "m",
-            "quant": "q",
-            "backend": "b",
-            "machine": "x",
-            "device": "d",
-            "cold_s": None,
-            "job_at": None,
-        }
-        for m, *_ in site.METRICS
-    ]
-    columns = site._grid_spec(rows, [], ["l"])["hconcat"]
-    decode = columns[0]["spec"]["layer"][0]["encoding"]["x"]["axis"]
-    assert decode["title"] == "generation (tok/s)"  # no subtitle line at all
+        # the numeric scale is readable as an axis: labels on, a (soft) domain
+        # line, no grid of its own, and no title competing with the heading
+        assert scale["orient"] == "bottom"
+        assert scale["domain"] is True and scale["grid"] is False
+        assert scale["title"] is None
+        first = column["spec"]["layer"][0]
+        assert first["mark"]["type"] == ("rule" if metric in site.RANGE_METRICS else "bar")
+        assert first["encoding"]["x"]["axis"] is scale
 
 
 def test_reading_anchors_are_at_most_three_ascending_gridlines(tmp_path):
     """Reference rules are gridlines at named reading speeds — a short, ordered set on
-    the tok/s columns, and nothing at all on warm init. Every anchor is drawn; the
-    ones that have room say what they are on the line itself."""
+    the tok/s columns, and nothing at all on warm init. Every anchor that is drawn is
+    also named, under the axis."""
     html = _build(tmp_path)
     columns = {
         metric: column
         for (metric, *_), column in zip(site.METRICS, _grid_columns(html), strict=True)
     }
     for metric, column in columns.items():
-        axis = _anchor_layer(column)["encoding"]["x"]["axis"]
-        values = axis.get("values")
+        axes = _x_axes(column)
         if metric == "init":
-            assert values is None and axis["grid"] is False
-            assert "labelExpr" not in axis  # plain numeric ticks, as everywhere else
+            assert "anchors" not in axes  # only the numeric scale under this column
             continue
+        axis = axes["anchors"]
+        values = axis["values"]
         assert axis["grid"] is True
         assert 0 < len(values) <= 3
         assert values == sorted(values)
         assert values == [v for v, _ in site.READING_ANCHORS[metric]]
-        # the first anchor of every column always fits, so a reader always has a
-        # named reference on the chart itself
-        first, name = site.READING_ANCHORS[metric][0]
-        assert f"datum.value === {first} ? '{first:,} · {name}'" in axis["labelExpr"]
-    # ...and the copy above the charts is the full key, for the lines that had no room
-    copy = html.split("<h2>Results</h2>")[1].split("</section>")[0]
-    for value, _ in {a for anchors in site.READING_ANCHORS.values() for a in anchors}:
-        assert f"({value:,}" in copy, value
+        # every anchor is named, each on its own stacked line under the axis
+        for line, (value, name) in enumerate(site.READING_ANCHORS[metric]):
+            stack = ", ".join(f"'{s}'" for s in [""] * line + [name])
+            assert f"datum.value === {value} ? [{stack}]" in axis["labelExpr"]
 
 
-def test_an_anchor_name_is_dropped_rather_than_printed_over_its_neighbour():
-    """Vega culls nothing on an axis with explicit `values`, so which anchors can wear
-    their names is arithmetic about pixels: wide-open columns crowd the low anchors
-    together, and a name that will not fit falls back to the bare rate, then to
-    nothing. A narrow column has room for every name it can still draw."""
-    pre = site.READING_ANCHORS["prefill"]
-    # 1,040 tok/s of ink — this shelf's fastest prompt lane: 130 and 400 land 39
-    # pixels apart, so only the first is named and 1,700 is off the scale entirely.
-    wide = site._anchor_labels(pre, 1040 * 1.16 * 1.1)
-    assert wide == [(130, "130 · paragraph/s"), (400, "")]
-    # a CPU-only selection: one line, named
-    assert site._anchor_labels(pre, 185 * 1.16 * 1.1) == [(130, "130 · paragraph/s")]
-    # no domain to fit against (the task grid computes its numbers in the page): the
-    # two anchors there are 26× apart, so both are named
-    assert site._anchor_labels(site.TASK_ANCHORS["tps"], None) == [
-        (5, "5 · silent reading"),
-        (130, "130 · paragraph/s"),
-    ]
-
-
-def test_the_fitted_span_is_the_widest_a_column_can_get():
-    """Names are fitted against the unfiltered ink, because every control-row state
-    only removes rows — so a name that fits at build time fits in all of them."""
-    rows = [
-        {"metric": "prefill", "label_x": 1040.0, "value": 900.0},
-        {"metric": "prefill", "label_x": 185.0, "value": 185.0},
-        {"metric": "decode", "label_x": None, "value": None},
-        {"metric": "init", "value": 1.4},
-    ]
-    spans = site._metric_spans(rows)
-    assert spans["prefill"] == pytest.approx(1040 * 1.16 * 1.1)
-    assert spans["init"] == pytest.approx(1.4 * 1.16 * 1.1)
-    assert "decode" not in spans  # nothing measured, nothing to fit against
+def test_anchor_names_stack_one_per_line_under_the_axis():
+    """Two anchors close together on the scale must never fight for the same
+    stretch of text: anchor *i* renders on line *i* of a multi-line tick label, so
+    the prefill column's 130 and 400 — 39 pixels apart on a wide-open shelf — sit
+    on different lines instead of one truncating the other."""
+    axis = site._anchor_axis(site.READING_ANCHORS["prefill"])
+    assert axis["labelExpr"] == (
+        "datum.value === 130 ? ['1 paragraph/s'] : "
+        "datum.value === 400 ? ['', '1 page/s'] : "
+        "datum.value === 1700 ? ['', '', '1 book/min'] : ''"
+    )
+    # explicit values draw no labels vega could cull half of
+    assert axis["labelOverlap"] is False
 
 
 def _fixture_grid_rows() -> dict[tuple[str, str, str], dict]:
@@ -280,20 +239,22 @@ def _fixture_grid_rows() -> dict[tuple[str, str, str], dict]:
     return {(r["lane"], r["model"], r["metric"]): r for r in site._grid_rows(df, ranges)}
 
 
-def test_range_metrics_carry_the_sweep_interval_around_the_job_dot():
-    """A range column draws the sweep's endpoints over depth with the job's own
-    number inside them: the m1-max ladder measured two fills (80 tok/s empty, 75 at
-    2,048) and the job scored 40, so the interval has to reach down to the dot."""
+def test_range_metrics_carry_the_sweep_interval_and_nothing_else():
+    """A range column draws the sweep's endpoints over depth, and only those: the
+    m1-max ladder measured two fills (80 tok/s empty, 75 at 2,048), so that is the
+    interval — the job's own 40 tok/s never stretches it (the accuracy section is
+    where the job is read, against the calculator). The printed label is the two
+    ends."""
     rows = _fixture_grid_rows()
     decode = rows[("Apple M1 Max · mtl", "gemma4-E2B", "decode")]
     assert (decode["d_shallow"], decode["v_shallow"]) == (0, 80.0)
     assert (decode["d_deep"], decode["v_deep"]) == (2048, 75.0)
     assert decode["n_depths"] == 2
-    assert decode["value"] == 40.0  # the job's point, untouched
-    assert (decode["lo"], decode["hi"]) == (40.0, 80.0)  # union, so the dot is on it
-    # the label rides the dot (`value`); `label_x` is only the row's ink edge, which
-    # is what the invisible headroom mark reserves room past
-    assert decode["label_x"] == 80.0 and "label_v" not in decode
+    assert (decode["lo"], decode["hi"]) == (75.0, 80.0)  # the sweep's own ends
+    assert decode["value"] is None  # the job's number stays out of this grid
+    assert decode["range_label"] == "75–80"
+    # `label_x` is the row's ink edge: where the label and a status note sit
+    assert decode["label_x"] == 80.0
 
     # 18 prefill chunks fan out to 9 cumulative depths; the rate falls with depth.
     prefill = rows[("Apple M1 Max · mtl", "gemma4-E2B", "prefill")]
@@ -301,26 +262,25 @@ def test_range_metrics_carry_the_sweep_interval_around_the_job_dot():
     assert prefill["d_shallow"] == 512 and prefill["d_deep"] == 4096
     assert prefill["v_shallow"] > prefill["v_deep"]
     assert (prefill["lo"], prefill["hi"]) == (prefill["v_deep"], prefill["v_shallow"])
-    # That run's job measured no prompt rate at all: the sweep's interval is still
-    # drawn, and nothing is labelled — the number a range column prints is the job's,
-    # and it prints it on the job's dot or not at all.
-    assert prefill["value"] is None
 
-    # The init column has no depth story and no interval fields at all.
+    # The init column keeps its own measured number and no interval fields at all.
     init = rows[("Apple M1 Max · mtl", "gemma4-E2B", "init")]
+    assert init["value"] is not None
     assert not {"lo", "hi", "v_deep", "label_x"} & init.keys()
 
 
 def test_a_status_note_is_told_once_per_lane_not_once_per_column():
-    """ "too slow" is a fact about the (lane, model), not about a column: the first
+    """The status is a fact about the (lane, model), not about a column: the first
     column that would have shown a number carries it and the other two stay blank,
-    so the row reads as one sentence instead of three."""
+    so the row reads as one sentence instead of three. This cell's sweep reached a
+    prefill point before the backstop killed it, so the note says the *job* was too
+    slow — a row that visibly measured something must not read as if it had not."""
     rows = _fixture_grid_rows()
     notes = {
         metric: rows[("RTX 3090 · cuda", "gemma4-E4B", metric)]["note"]
         for metric, *_ in site.METRICS
     }
-    assert notes == {"decode": "too slow", "prefill": None, "init": None}
+    assert notes == {"decode": "job too slow", "prefill": None, "init": None}
     # ...and a cell that measured everything carries no note in any column
     assert not any(
         rows[("RTX 3090 · cuda", "qwen3-4B", metric)]["note"] for metric, *_ in site.METRICS
@@ -336,28 +296,30 @@ def test_one_measured_depth_collapses_and_keeps_its_status_note():
     assert prefill["n_depths"] == 1
     assert prefill["d_shallow"] == prefill["d_deep"] == 512
     assert prefill["v_shallow"] == prefill["v_deep"] == prefill["lo"] == prefill["hi"]
-    assert prefill["value"] is None  # no job number to put a dot on, and so no label
+    assert prefill["value"] is None  # no job number to put a dot on
     assert prefill["label_x"] == prefill["v_deep"]  # the interval is still the ink
 
     # Same cell, decode: the sweep never got there, so there is no interval either —
     # and this is the column that tells the reader why (once, for the whole row).
     decode = rows[("RTX 3090 · cuda", "gemma4-E4B", "decode")]
-    assert decode["note"] == "too slow"
+    assert decode["note"] == "job too slow"  # the prefill interval is real ink
     for field in ("lo", "hi", "v_shallow", "v_deep", "n_depths", "label_x"):
         assert decode[field] is None, field  # None, never NaN — the island is strict
 
 
 def test_a_cell_with_no_sweep_at_all_keeps_only_its_note():
-    """The unhealthy (model, provider) never ran: no interval, no dot, no label."""
+    """The unhealthy (model, provider) never ran: no interval, no dot — and with no
+    ink anywhere in the row, the note is the bare status, never "job unhealthy"."""
     row = _fixture_grid_rows()[("Apple M1 Max · mtl", "qwen3-4B", "decode")]
     assert row["note"] == "unhealthy"
     assert row["value"] is None and row["lo"] is None and row["label_x"] is None
 
 
-def test_the_job_dot_sits_at_a_prompt_depth_read_off_its_own_numbers():
-    """`job_at` is derived — rate × time to first token — so the tooltip can say
-    which depth the dot belongs to without the report hardcoding the task's prompt.
-    A lane whose sweep only reached one deep fill still reads as one interval."""
+def test_a_one_point_sweep_stays_a_point_and_a_missing_sweep_says_so():
+    """A lane whose sweep reached one deep fill is one point — the job's own rate
+    never stretches it into a range the sweep did not measure. And an ok cell whose
+    sweep left no points in a column says "no sweep data" there, instead of a
+    silent blank that reads as a lane dropping out."""
     df = pd.DataFrame(
         [
             {
@@ -389,47 +351,49 @@ def test_the_job_dot_sits_at_a_prompt_depth_read_off_its_own_numbers():
         }
     }
     rows = {r["metric"]: r for r in site._grid_rows(site._with_lanes(df), ranges)}
-    assert rows["decode"]["job_at"] == 1555  # ≈ the summarize-large prompt
-    assert (rows["decode"]["lo"], rows["decode"]["hi"]) == (8.9, 20.19)
-    assert rows["decode"]["value"] == 20.19  # what the label prints, where the dot is
-    assert rows["prefill"]["job_at"] == 1555
-    assert rows["prefill"]["lo"] is None  # no prefill sweep points for this cell
+    assert (rows["decode"]["lo"], rows["decode"]["hi"]) == (8.9, 8.9)
+    assert rows["decode"]["range_label"] == "8.9"  # one point prints one number
+    assert rows["decode"]["value"] is None  # the job's 20.19 appears nowhere
+    assert rows["prefill"]["lo"] is None
+    assert rows["prefill"]["note"] == "no sweep data"
+    assert rows["init"]["value"] == 0.6  # init still carries its own number
 
 
-def test_range_columns_draw_a_rule_a_dot_and_one_label(tmp_path):
-    """Per range column: the interval, the job's filled dot, one value label riding
-    that dot, and a zero-based x scale (a rule, unlike a bar, does not bring its own
-    baseline)."""
+def test_range_columns_draw_a_rule_with_its_ends_printed(tmp_path):
+    """Per range column: the interval on a zero-based x scale (a rule, unlike a
+    bar, does not bring its own baseline), the two ends printed at its edge, the
+    status note, and the axis carriers. No dot — the validation job is not on this
+    chart."""
     columns = {
         metric: column
         for (metric, *_), column in zip(site.METRICS, _grid_columns(_build(tmp_path)), strict=True)
     }
     for metric, column in columns.items():
-        marks = [layer["mark"]["type"] for layer in column["spec"]["layer"]]
+        layers = column["spec"]["layer"]
+        marks = [layer["mark"]["type"] for layer in layers]
+        texts = [layer for layer in layers if layer["mark"]["type"] == "text"]
+        assert [t["mark"].get("fontStyle") for t in texts] == [None, "italic"]
         if metric not in site.RANGE_METRICS:
-            assert marks[0] == "bar"
+            # bar, its value label, headroom, note, heading carrier
+            assert marks == ["bar", "text", "point", "text", "point"]
+            assert [t["encoding"]["text"]["field"] for t in texts] == ["value", "note"]
             continue
-        assert marks == ["rule", "point", "text", "point", "text"]
-        rule, dot, label = column["spec"]["layer"][:3]
+        # rule, range label, headroom, note, heading + anchor carriers
+        assert marks == ["rule", "text", "point", "text", "point", "point"]
+        assert [t["encoding"]["text"]["field"] for t in texts] == ["range_label", "note"]
+        rule, label = layers[:2]
         assert rule["encoding"]["x"]["field"] == "lo"
         assert rule["encoding"]["x2"]["field"] == "hi"
         assert rule["encoding"]["x"]["scale"] == {"zero": True}
-        assert dot["mark"]["filled"] is True
-        assert dot["encoding"]["x"]["field"] == "value"  # the job's own number
-        # The label rides the mark it describes: same field as the dot, cleared by
-        # dx so the text never prints over the dot's rim, and drawn only where the
-        # job produced a number at all.
-        assert label["encoding"]["x"]["field"] == "value"
-        assert label["encoding"]["text"]["field"] == "value"
+        # label and note both sit at the ink's edge, cleared of the rule's cap
+        assert label["encoding"]["x"]["field"] == "label_x"
         assert label["mark"]["dx"] == 9
-        assert label["transform"] == [{"filter": "datum.value !== null"}]
-        # the headroom mark reserves room past the row's ink, which is a different
-        # thing from where the label sits: the interval can reach past the dot
-        assert "datum.label_x" in column["spec"]["layer"][3]["transform"][0]["calculate"]
-        # Hover describes the ink and nothing else: the sweep's points as one
-        # prebuilt string (a one-point sweep reads as one point, never a "17–17"
-        # range), and the job's value at its own prompt depth as another.
-        assert [t["field"] for t in rule["encoding"]["tooltip"]] == ["sweep_str", "job_str"]
+        note = texts[1]
+        assert "datum.label_x" in note["transform"][1]["calculate"]
+        assert note["mark"]["dx"] == 9
+        # Hover describes the ink and nothing else: the sweep's ends with their
+        # depths, as one prebuilt string (a one-point sweep reads as one point).
+        assert [t["field"] for t in rule["encoding"]["tooltip"]] == ["sweep_str"]
 
 
 def _island(html: str, name: str) -> dict:
@@ -629,16 +593,19 @@ def _fixture_pack() -> dict:
     return site._task_pack(df, site._with_lanes(load_sweeps(FIXTURES)))
 
 
-def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
-    """The page prices a task from this pack alone, so it has to hold the whole cost
-    function (both parameters, the dispatch width they belong to, and the fit
-    quality), the ladder as measured pairs, how far each phase was measured, what a
-    launch costs once, and the job's own numbers to check the arithmetic against."""
+def test_task_pack_carries_the_measured_curves_and_the_envelope():
+    """The page prices a task from this pack alone, so it has to hold both measured
+    cost curves — the cumulative time-to-first-token points and the decode ladder,
+    never a fit of them — how far each was measured, what a launch costs once, and
+    the job's own numbers to check the arithmetic against."""
     pack = _fixture_pack()
     records = {(r["lane"], r["model"]): r for r in pack["records"]}
 
     cuda = records[("RTX 3090 · cuda", "qwen3-4B")]
-    assert cuda["fit"] == {"w": 512, "b": 99.998, "m": 12.0005, "r2": 1.0, "resid": 0.0}
+    # the sweep's own cumulative clock at every chunk boundary, from the origin
+    assert cuda["curve"][:3] == [[0, 0], [512, 100.0], [1024, 206.1]]
+    assert cuda["curve"][-1] == [4096, 979.9]
+    assert cuda["curve"] == sorted(cuda["curve"])
     assert cuda["pre_max"] == 4096  # nine chunks deep, and not a token further
     assert cuda["ladder"] == [[0, 80.0], [2048, 75.0]] and cuda["kv_max"] == 2048
 
@@ -656,7 +623,7 @@ def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
     assert cuda["load_s"] == 1.0
     assert cuda["cold_s"] == 5.0 and cuda["first_launch_s"] == 1.56
     assert cuda["measured"] == {"ttft": 0.7, "tps": 80.0, "total": 4.0}
-    # The model's own trained context: the page evaluates its fits past the sweep's
+    # The model's own trained context: the page carries its curves past the sweep's
     # depths, so this is the one number that can rule a configuration out entirely.
     assert cuda["n_ctx_train"] == 4096
 
@@ -665,11 +632,16 @@ def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
     # reported as one (same rule as the first-launch chart).
     mac = records[("Apple M1 Max · mtl", "gemma4-E2B")]
     assert mac["first_launch_s"] == 0.61
-    assert mac["fit"]["w"] == 512 and mac["kv_max"] == 2048
+    assert mac["curve"][1] == [512, 140.0] and mac["kv_max"] == 2048
 
-    # Nothing measured a cost function: no bar could be drawn from it, and the
-    # Results grid above already says why the cell is empty.
-    assert ("RTX 3090 · cuda", "gemma4-E4B") not in records  # one chunk, no fit
+    # One measured chunk is still a curve — priceable to its depth, carried onward
+    # and marked past it — exactly as a one-rung ladder is still a ladder.
+    slow = records[("RTX 3090 · cuda", "gemma4-E4B")]
+    assert slow["curve"] == [[0, 0], [512, 9000.0]] and slow["pre_max"] == 512
+    assert slow["ladder"] == [] and slow["measured"] is None
+
+    # Nothing measured at all: no bar could be drawn from it, and the Results grid
+    # above already says why the cell is empty.
     assert ("RTX 3090 · cuda", "gemma4-E2B") not in records  # errored, nothing at all
     assert ("Apple M1 Max · mtl", "qwen3-4B") not in records
     json.dumps(pack, allow_nan=False)  # strict — it ships as a JSON island
@@ -687,15 +659,17 @@ def test_each_task_owns_its_columns_and_its_note():
         assert len(t["columns"]) == len(site.TASK_METRICS)
     assert tasks["chat"]["depth"] > 0  # a turn appended to a live cache
     assert tasks["chat"]["fields"] == ["depth"]  # the one task with a depth input
-    assert tasks["summarize"]["measured"] is True  # the one task with dots
+    assert tasks["summarize"]["measured"] is True  # the job's own shape (accuracy)
     assert tasks["extract"]["mid_unit"] == "s"  # phases in seconds, nobody watching
     assert [t["key"] for t in pack["tasks"]][0] == "chat"  # the page opens on it
 
 
 def test_task_grid_draws_three_computed_columns_the_page_fills(tmp_path):
-    """Same layout as the measured grid — heading on the x axis over the plot area,
-    one axis carrier per column, labels then headroom — over data the page inserts:
-    the island ships a named, empty set, never numbers computed at build time."""
+    """Same layout as the measured grid — heading over the plot area, numeric scale
+    and anchor references under it, the value printed at the bar's end — over data
+    the page inserts: the island ships a named, empty set, never numbers computed
+    at build time. No measured dot: the validation job lives in the accuracy
+    section, not on the predictions."""
     spec = _island(_build(tmp_path), "tasks")
     assert spec["data"] == {"name": "tasks"}
     columns = spec["hconcat"]
@@ -705,31 +679,39 @@ def test_task_grid_draws_three_computed_columns_the_page_fills(tmp_path):
         columns, site.TASK_METRICS, site.TASKS[0]["columns"], strict=True
     ):
         assert "title" not in column
-        bar, dot, label, headroom, note = column["spec"]["layer"]
-        anchor = _anchor_layer(column)  # exactly one, or the heading breaks
-        assert anchor is bar and bar["mark"]["type"] == "bar"
-        axis = bar["encoding"]["x"]["axis"]
-        assert axis["orient"] == "top" and axis["titleAnchor"] == "start"
-        text = axis["title"]
+        bar, label = column["spec"]["layer"][:2]
+        assert bar["mark"]["type"] == "bar"
+        axes = _x_axes(column)
+        heading = axes["heading"]
+        assert heading["titleAnchor"] == "start"
+        text = heading["title"]
         assert (text[0] if isinstance(text, list) else text) == title
+        # the scale rides the bar; "~r" keeps the empty pre-insert domain from
+        # deriving six decimals of tick precision for a lone zero
+        assert bar["encoding"]["x"]["axis"] is axes["scale"]
+        assert axes["scale"]["format"] == "~r"
         # Generation carries the same named reading-speed anchors as the measured
         # grid; seconds have none.
         if metric == "tps":
-            assert axis["values"] == [v for v, _ in site.TASK_ANCHORS["tps"]]
-            for value, name in site.TASK_ANCHORS["tps"]:
-                assert f"'{value:,} · {name}'" in axis["labelExpr"]
+            assert axes["anchors"]["values"] == [v for v, _ in site.TASK_ANCHORS["tps"]]
+            for _value, name in site.TASK_ANCHORS["tps"]:
+                assert f"'{name}'" in axes["anchors"]["labelExpr"]
         else:
-            assert axis.get("values") is None and axis["grid"] is False
+            assert "anchors" not in axes
         # An estimate is thinner ink, not a second hue — and a value condition
         # carries no scale, so it adds no legend.
         assert bar["encoding"]["opacity"]["condition"]["test"] == "datum.est"
-        assert dot["transform"] == [{"filter": "datum.measured !== null"}]
-        assert dot["encoding"]["x"]["field"] == "measured"
-        assert label["encoding"]["text"]["field"] == "label"  # a string, not a format
-        assert label["encoding"]["x"]["field"] == "label_x"
-        assert "datum.label_x" in headroom["transform"][0]["calculate"]
-        assert note["transform"] == [{"filter": "datum.note !== null"}]
-        assert note["mark"]["fontStyle"] == "italic"
+        # the label is a string the page's arithmetic writes ("2 min 14 s"),
+        # riding the bar it describes
+        assert label["encoding"]["text"]["field"] == "label"
+        assert label["encoding"]["x"]["field"] == "value"
+        # two text layers: the value label and the italic note — never a dot
+        texts = [lyr for lyr in column["spec"]["layer"] if lyr["mark"]["type"] == "text"]
+        assert [t["encoding"]["text"]["field"] for t in texts] == ["label", "note"]
+        assert [t["mark"].get("fontStyle") for t in texts] == [None, "italic"]
+        assert not any(
+            "measured" in json.dumps(lyr.get("transform", [])) for lyr in column["spec"]["layer"]
+        )
 
 
 def test_task_columns_say_what_they_price_not_what_the_grid_measured(tmp_path):
@@ -743,12 +725,11 @@ def test_task_columns_say_what_they_price_not_what_the_grid_measured(tmp_path):
         titles = [t for t, _ in task["columns"]]
         assert len(set(titles)) == 3
         assert not grid_titles & set(titles)
-    axes = [
-        column["spec"]["layer"][0]["encoding"]["x"]["axis"]
-        for column in _island(_build(tmp_path), "tasks")["hconcat"]
+    headings = [
+        _x_axes(column)["heading"] for column in _island(_build(tmp_path), "tasks")["hconcat"]
     ]
     first = site.TASKS[0]["columns"]
-    assert [a["title"] for a in axes] == [first[0][0], first[1][0], [first[2][0], first[2][1]]]
+    assert [a["title"] for a in headings] == [first[0][0], first[1][0], [first[2][0], first[2][1]]]
 
 
 def test_preset_notes_name_the_work_in_words_as_well_as_tokens():
@@ -854,10 +835,21 @@ def test_the_page_refuses_only_what_the_model_cannot_hold(tmp_path):
     ]
 
 
-# One lane's pack record, shaped like the shelf's slowest CPU lanes: a fit taken to
-# 7,168 tokens and a decode ladder that stops at the same fill. A 8,192-token prompt
-# is past both and well inside the model's 262,144-token context — the case the
-# calculator used to refuse.
+def _line_curve(b: float, m: float, depth: int, w: int = 512) -> list[list[float]]:
+    """A cumulative prefill curve whose chunks cost `b + m·d/1k` — what the sweep
+    would have measured on a lane that really were linear, so the expectations
+    below stay hand-checkable arithmetic."""
+    curve, t = [[0, 0.0]], 0.0
+    for k in range(depth // w):
+        t += b + m * (w * k) / 1000
+        curve.append([w * (k + 1), round(t, 1)])
+    return curve
+
+
+# One lane's pack record, shaped like the shelf's slowest CPU lanes: a curve
+# measured to 7,168 tokens and a decode ladder that stops at the same fill. A
+# 8,192-token prompt is past both and well inside the model's 262,144-token
+# context — the case the calculator used to refuse.
 PAST_MEASURED = {
     "records": [
         {
@@ -867,7 +859,7 @@ PAST_MEASURED = {
             "quant": "q4",
             "backend": "llamacpp",
             "rank": 0,
-            "fit": {"w": 512, "b": 2451.831, "m": 666.999, "r2": 0.99, "resid": 1.0},
+            "curve": _line_curve(2451.831, 666.999, 7168),
             "pre_max": 7168,
             "ladder": [[0, 31.0], [2048, 28.0], [7168, 22.0]],
             "kv_max": 7168,
@@ -885,13 +877,13 @@ PAST_MEASURED = {
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_past_the_measured_depth_the_fit_is_evaluated_and_marked(tmp_path):
-    """Past the sweep's deepest point there is still a cost function to evaluate: the
-    prefill fit is per-dispatch cost plus a depth-linear term, so evaluating it further
-    out is a prediction, not a fiction. Every column keeps its number, wears a `~`, is
-    drawn at half ink, and names on hover — in a label, not a paragraph — how far past
-    the evidence it went. The generation rate is held at the deepest fill measured,
-    which is the slowest observed."""
+def test_past_the_measured_depth_the_curve_is_carried_on_and_marked(tmp_path):
+    """Past the sweep's deepest point the measured curve is carried onward at its
+    last segment's per-token cost — a prediction, not a fiction, and the optimistic
+    side since the marginal cost was still rising. Every column keeps its number,
+    wears a `~`, is drawn at half ink, and names on hover — in a label, not a
+    paragraph — how far past the evidence it went. The generation rate is held at
+    the deepest fill measured, which is the slowest observed."""
     (rows_json, depths_json) = _node(
         tmp_path,
         f"var pack = {json.dumps(PAST_MEASURED)};\n"
@@ -905,7 +897,7 @@ def test_past_the_measured_depth_the_fit_is_evaluated_and_marked(tmp_path):
     assert set(rows) == {"ttft", "tps", "total"}
     for row in rows.values():
         assert row["value"] is not None and row["note"] is None
-        assert row["est"] is True and row["label"].startswith("~")
+        assert row["est"] is True and row["value_label"].startswith("~")
 
     past = "past the measured 7k tokens"
     held = "rate held at the deepest fill measured"
@@ -917,11 +909,83 @@ def test_past_the_measured_depth_the_fit_is_evaluated_and_marked(tmp_path):
         for clause in row["why"].split("; "):
             assert len(clause) <= 40, clause
             assert "." not in clause and "—" not in clause
-    # 16 full chunks at 2,451.8 ms, plus 667.0 ms per 1k of depth already read
-    assert rows["ttft"]["value"] == pytest.approx(80.2, abs=0.1)
+    # 65.4 s measured to 7,168 tokens, then 1,024 more at the last segment's
+    # 13.46 ms/token — under the fit's own 80.2 s, because holding the last rate
+    # is the optimistic side of a rising marginal cost
+    assert rows["ttft"]["value"] == pytest.approx(79.2, abs=0.1)
     assert rows["tps"]["value"] == pytest.approx(22.0, abs=0.1)  # the held rate
     # a depth reads as a reader would say it, to the nearest half-thousand
     assert json.loads(depths_json) == ["512", "3.5k", "7k", "8k"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_accuracy_rows_grade_the_job_shape_and_skip_generation(tmp_path):
+    """The accuracy rows price the validation job's own shape with the calculator
+    and read it against the job's measurements — signed percent, one row per graded
+    phase. Generation is never graded on its own: where the sweep ran thin the
+    job's rate is part of the ladder, and a check against itself proves nothing."""
+    pack = {
+        "records": [
+            {
+                "lane": "Ryzen 7 255 · cpu 8t",
+                "dev_class": "CPU",
+                "model": "Ministral3-3B",
+                "quant": "q4",
+                "backend": "llamacpp",
+                "rank": 0,
+                # a flat measured curve — 1,000 ms per 512 tokens — so a
+                # 1,536-token prompt prices at exactly 3 s
+                "curve": [[0, 0], [512, 1000.0], [1024, 2000.0], [1536, 3000.0]],
+                "pre_max": 1536,
+                "ladder": [[0, 16.0]],
+                "kv_max": 7168,
+                "n_ctx_train": 262144,
+                "load_s": 1.0,
+                "cold_s": None,
+                "first_launch_s": None,
+                "measured": {"ttft": 5.0, "tps": 16.0, "total": 16.0},
+            }
+        ],
+        "tasks": [{"key": "summarize", "measured": True, "depth": 0, "prompt": 1536, "out": 256}],
+        "metrics": ["ttft", "tps", "total"],
+    }
+    (rows_json,) = _node(
+        tmp_path,
+        f"var pack = {json.dumps(pack)};\n"
+        "console.log(JSON.stringify(window.taskMath.accuracyRows(pack)));\n",
+    )
+    rows = {r["phase"]: r for r in json.loads(rows_json)}
+    assert set(rows) == set(site.ACCURACY_PHASES)  # ttft and whole task, never tps
+    ttft = rows["time to first token"]
+    assert ttft["err_pct"] == -40.0  # predicted 3 s against a measured 5 s
+    assert ttft["err_label"] == "−40.0%"
+    total = rows["whole task"]
+    assert total["err_pct"] == 18.8  # predicted 3 + 256/16 = 19 s against 16 s
+    assert total["err_label"] == "+18.8%"
+    # hover carries the two numbers the bar was computed from
+    assert total["meas_label"] == "16 s"
+    assert total["pred_label"].endswith("s")
+
+
+def test_accuracy_chart_diverges_around_zero_with_the_job_on_hover(tmp_path):
+    """The accuracy island: page-filled named data, one bar per graded phase off a
+    zero rule, the signed error printed at the bar's end on whichever side it grew,
+    and hover carrying predicted against measured."""
+    spec = _island(_build(tmp_path), "accuracy")
+    assert spec["data"] == {"name": "accuracy"}
+    bar, zero, label, headroom = spec["layer"]
+    assert bar["mark"]["type"] == "bar"
+    assert bar["encoding"]["x"]["field"] == "err_pct"
+    assert bar["encoding"]["x"]["scale"] == {"zero": True}
+    assert bar["encoding"]["yOffset"]["scale"]["domain"] == list(site.ACCURACY_PHASES)
+    assert bar["encoding"]["opacity"]["legend"]["orient"] == "bottom"
+    assert [t["field"] for t in bar["encoding"]["tooltip"]] == ["pred_label", "meas_label"]
+    assert zero["mark"]["type"] == "rule"
+    assert zero["encoding"]["x"] == {"datum": 0, "type": "quantitative"}
+    assert label["encoding"]["text"]["field"] == "err_label"
+    assert "datum.err_pct < 0" in label["mark"]["align"]["expr"]
+    # headroom reaches past both ends: the factor rides the signed value itself
+    assert "datum.err_pct * " in headroom["transform"][0]["calculate"]
 
 
 def test_the_task_section_ships_its_controls_its_pack_and_its_arithmetic(tmp_path):
