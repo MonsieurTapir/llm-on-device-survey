@@ -71,11 +71,14 @@ loop, no model cache; the harness owns the matrix.
 **Nothing is measured twice.** A prompt is ingested ubatch-by-ubatch anyway,
 so separate prefill points at doubling lengths would re-run the same loop —
 the sweep instead times the chunks of one pass, and the decode ladder reuses
-that pass's primed cache. Under the soft sweep budget (default 60 s) the
-ladder stops between items, and each decode point stops early past its own
-soft time budget (never below the steady-state minimum): on slow silicon the
-measured envelope shrinks instead of the time growing, and everything
-measured is emitted. Probe points repeat adaptively (spread ≤ 5% judged from
+that pass's primed cache — trimming down to each fill, which costs nothing.
+The soft sweep budget (default 60 s) bounds the prefill ladder, stopping it
+between chunks: on slow silicon the measured envelope shrinks instead of the
+time growing, and everything measured is emitted. The decode ladder then walks
+every fill under the reached depth regardless — two points are what make a
+slope, and the lanes that exhaust the envelope budget are the ones whose
+decode-vs-context term matters most — with each point stopping early past its
+own 5 s budget (never below the steady-state minimum token count). Probe points repeat adaptively (spread ≤ 5% judged from
 3 repeats, capped at 5; a ≥ 20 s point runs once); the job keeps fixed **K
 in-process iterations × S spawns** (defaults 2×1).
 

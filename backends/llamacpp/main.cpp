@@ -858,8 +858,9 @@ struct Cli {
             "a missed expect marks the events unhealthy and skips the sweep");
         sweep_cmd
             ->add_option("--deadline-ms", args.deadline_ms,
-                         "Soft budget: stop the chunk/fill ladders once elapsed ≥ this (0 = off); "
-                         "the first chunk and first decode point always complete")
+                         "Soft budget: stop the prefill chunk ladder once elapsed ≥ this "
+                         "(0 = off); its first chunk always completes, and the decode ladder "
+                         "always walks every fill under the depth reached")
             ->capture_default_str();
         sweep_cmd->add_option("--out", args.out, "Events output path, or '-' for stdout")
             ->capture_default_str();
@@ -953,9 +954,14 @@ int cmd_run(const Arguments & args) {
 // IS the prefill cost curve — a 4k prefill is literally the first half of an
 // 8k one. The pass leaves the cache primed, and the decode ladder walks DOWN
 // from the depth reached by trimming (free), so priming is never paid either.
-// The soft budget stops the ladder between items: on slow silicon the
-// measured envelope shrinks instead of the time growing; past it is
-// extrapolation, and the data says so. 8k is the envelope cap.
+//
+// The soft budget bounds the PREFILL ladder only: it stops between chunks, so on
+// slow silicon the measured envelope shrinks instead of the time growing; past it
+// is extrapolation, and the data says so. 8k is the envelope cap. The decode
+// ladder then always walks every fill, budget or not — two points are what make a
+// slope, and a lane slow enough to exhaust the envelope budget is exactly the one
+// whose decode-vs-context term is worth having. Each point carries its own small
+// budget, so the guarantee costs seconds, not minutes.
 //
 // The spawn also carries the provider-health gate (--gate): the brain-check
 // runs on the already-loaded model before anything synthetic, so the health
@@ -974,13 +980,21 @@ constexpr int                kSweepDepth   = 8192;
 // narrower but the operating point is still 512 — so it is a scaling indicator,
 // not a measurement of the narrower operating point.
 constexpr std::array<int, 2> kSubdivideAt{1024, 5120};
-constexpr std::array<int, 2> kDecodeFills{2048, 0}; // walked below the reached depth
+// Fills the decode ladder trims down to, below the depth the pass reached. Fixed
+// depths rather than fractions of what this lane managed: two lanes then share
+// their fills, so their decode terms compare directly, and the reached depth
+// (measured first, whatever it is) stays the widest lever for the slope. Four
+// points on a full envelope, with the spread to say whether the term is linear
+// rather than assuming it; a lane that stopped early keeps whichever fills fit
+// under it.
+constexpr std::array<int, 3> kDecodeFills{4096, 2048, 0};
 constexpr int                kDecodeTokens = 64;
 // A decode point stops early past this budget (never below the minimum — a
 // steady-state median needs the steps); slow silicon spends seconds per
-// point, not a fixed token count.
+// point, not a fixed token count. The budget only binds below ~13 tok/s, where
+// it still buys tens of tokens; above that the token count is reached first.
 constexpr int     kDecodeMinTokens     = 16;
-constexpr int64_t kDecodePointBudgetNs = 8'000'000'000;
+constexpr int64_t kDecodePointBudgetNs = 5'000'000'000;
 constexpr int     kSweepContext        = 8192 + 128; // top depth + decode headroom
 // The job's scale, as the fallback when the envelope context won't allocate —
 // a device too tight for 8k still gates and measures what fits.
@@ -1054,7 +1068,6 @@ int cmd_sweep(const Arguments & args) {
         if (depth + kDecodeTokens <= session.n_ctx()) measure_fill(depth);
         for (const int fill : kDecodeFills) {
             if (fill >= depth) continue; // beyond (or equal to) what the pass reached
-            if (past_budget(decode_points.empty())) break;
             if (!session.trim_cache(fill)) { // hybrid/recurrent: only 0 is reachable
                 std::cerr << "llamacpp: cache refuses partial trim — skipping fill " << fill << "\n";
                 continue;

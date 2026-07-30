@@ -1,11 +1,12 @@
 """`bench check` — conformance-check a built backend against the contract.
 
 Runs `version` / `providers`, one ceiling `probe`, a minimal gated `sweep` (a
-1 ms deadline keeps it to the first point of each kind — the exe's first-point
-guarantee makes that a complete, schema-valid object — while the gate runs in
-full, as it always does), and one `run` of the brain-check task on the first
-variant (the job's code path); schema-checks each output. A backend that
-doesn't pass `check` is not done.
+1 ms deadline keeps the prefill envelope to its first chunk — the decode ladder
+always completes, so a shallow envelope means few fills fit under it, and the
+object stays complete and schema-valid — while the gate runs in full, as it
+always does), and one `run` of the brain-check task on the first variant (the
+job's code path); schema-checks each output. A backend that doesn't pass
+`check` is not done.
 """
 
 from __future__ import annotations

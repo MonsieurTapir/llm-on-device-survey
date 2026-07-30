@@ -209,8 +209,9 @@ def sweep(
     """One sweep spawn. `gate` is the resolved health-check task the exe runs
     through the chat path before anything synthetic — sharing the sweep's model
     load; a missed expect makes the events unhealthy and the point arrays come
-    back empty. `deadline_ms` soft-caps the point loop (the first point of each
-    kind always completes); `backstop_s` hard-kills a hang."""
+    back empty. `deadline_ms` soft-caps the prefill envelope (its first chunk
+    always completes; the decode ladder completes regardless); `backstop_s`
+    hard-kills a hang."""
     gate_path: str | None = None
     if gate is not None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
