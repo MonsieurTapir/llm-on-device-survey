@@ -49,7 +49,12 @@ elif mode == "sweep":
            "prefill_chunks": [{{"type": "prefill", "context_size": 0,
                                "tokens_count": 512, **span}}],
            "decode_points": [{{"kv_fill": 0, "tokens": 4,
-                              "repeats": [{{"token_ns": [1, 2], **span}}]}}]}}
+                              "repeats": [{{"token_ns": [1, 2], **span}}]}}],
+           "thread_prefill": [{{"threads": 1,
+                               "prefill": {{"type": "prefill", "context_size": 0,
+                                           "tokens_count": 128, **span}}}}],
+           "thread_decode": [{{"threads": 1, "kv_fill": 0,
+                              "decode": {{"token_ns": [1, 2], **span}}}}]}}
     if "--gate" in argv:
         doc["gate"] = {{"task": json.load(open(argv[argv.index("--gate") + 1]))["name"],
                        "events": [{{"type": "turn-end", "completion": "blue",

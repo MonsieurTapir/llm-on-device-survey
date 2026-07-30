@@ -12,8 +12,11 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import math
 
-from bench import aggregate, schema
+import pytest
+
+from bench import aggregate, metrics, schema
 from bench.commands.aggregate import cmd_aggregate
 
 # Anchor: wall = W0 + (mono - 0). Keeping mono small makes the wall stamps readable.
@@ -261,6 +264,39 @@ def test_sweep_chunks_pass_through_and_decode_reduces():
     assert sweep["prefill"][1] == {"context": 512, "tokens": 512, "ms": 1500.0}
     d0 = sweep["decode"][0]
     assert (d0["kv_fill"], d0["tps_p50"], d0["n_reps"]) == (1024, 1.0, 1)
+
+
+def test_thread_scaling_is_none_without_a_ladder():
+    """A trace carrying no ladder (GPU lane, or one predating the measurement)
+    reports null rather than an empty shell that reads as a measurement."""
+    sweep = aggregate.build(_raw([_healthy_cell()]))["runs"][0]["sweep"]
+    assert sweep["thread_scaling"] is None
+
+
+def test_thread_prefill_fit_recovers_amdahl_terms():
+    """Synthesise ms = 100 + 800/N exactly; the fit must read those terms back."""
+    points = [{"threads": n, "ms": 100 + 800 / n} for n in (8, 4, 2)]
+    fit = metrics.thread_prefill_fit(points)
+    assert fit["model"] == "amdahl"
+    assert fit["floor_ms"] == 100.0
+    assert fit["scaled_ms"] == 800.0
+    assert fit["r2"] > 0.9999
+
+
+def test_thread_decode_fit_recovers_saturating_terms():
+    """Synthesise tok/s = 25·(1 − e^(−N/2)) exactly. The scan must land both
+    parameters, so the derived width-for-90% is trustworthy."""
+    points = [{"threads": n, "tps": 25 * (1 - math.exp(-n / 2))} for n in (16, 8, 4, 2, 1)]
+    fit = metrics.thread_decode_fit(points)
+    assert fit["model"] == "saturating"
+    assert fit["rate_max_tps"] == pytest.approx(25.0, abs=0.05)
+    assert fit["threads_scale"] == pytest.approx(2.0, abs=0.02)
+
+
+def test_thread_fits_are_none_on_a_single_width():
+    """One width cannot separate the scaled term from the floor."""
+    assert metrics.thread_prefill_fit([{"threads": 4, "ms": 10.0}]) is None
+    assert metrics.thread_decode_fit([{"threads": 4, "tps": 10.0}]) is None
 
 
 def test_geometry_carried_from_sweep():

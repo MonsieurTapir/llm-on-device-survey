@@ -158,8 +158,8 @@
     "sweepResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "prefill", "decode", "fit", "ubatch", "warmup_ms", "shader_bytes", "shader_cache"],
-      "description": "Aggregated sweep points, plus what they reduce to: `fit` is the prefill cost function's parameters, `ubatch` the lane's dispatch-width sensitivity. Points may be present with a non-ok status: whatever completed before the failure is kept (a partial sweep still informs the fit).",
+      "required": ["status", "prefill", "decode", "fit", "ubatch", "thread_scaling", "warmup_ms", "shader_bytes", "shader_cache"],
+      "description": "Aggregated sweep points, plus what they reduce to: `fit` is the prefill cost function's parameters, `ubatch` the lane's dispatch-width sensitivity, `thread_scaling` how each phase pays for intra-op threads. Points may be present with a non-ok status: whatever completed before the failure is kept (a partial sweep still informs the fit).",
       "properties": {
         "status": { "enum": ["ok", "too_slow", "errored", "skipped"], "description": "skipped = the gate (carried by this same spawn) failed, so no point was measured. too_slow = the harness hang guard killed the spawn." },
         "prefill": {
@@ -206,6 +206,99 @@
               "penalty_pct": { "type": ["number", "null"], "description": "parts_ms over full_ms_fitted as a percent; positive means narrower dispatches cost more." }
             }
           }
+        },
+        "thread_scaling": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["prefill", "decode"],
+              "description": "How each phase pays for intra-op thread width, on CPU lanes. Widths walk DOWN from the lane's own default (above it lies only SMT, which costs both phases). The work units are smaller than the main ladder's and NOT comparable to it — only the ratio between widths is claimed — and each phase is sampled where it is cheap: prefill from an empty cache, decode at a fill the pass already primed. A scaling indicator, not a second operating point. The two phases carry DIFFERENT fit shapes on purpose: prefill is compute-bound and Amdahl-clean, decode saturates a shared memory path and needs a saturating form.",
+              "properties": {
+                "prefill": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["points", "fit"],
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["threads", "tokens", "ms", "tps"],
+                        "properties": {
+                          "threads": { "type": "integer", "minimum": 1, "description": "n_threads_batch at this point." },
+                          "tokens": { "type": "integer", "minimum": 1 },
+                          "ms": { "type": "number", "minimum": 0 },
+                          "tps": { "type": ["number", "null"], "minimum": 0 }
+                        }
+                      }
+                    },
+                    "fit": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["model", "floor_ms", "scaled_ms", "r2", "resid_max_pct", "n_points"],
+                          "description": "Amdahl's form: ms = floor_ms + scaled_ms/N. scaled_ms is the work threads divide, floor_ms what no width removes — a small floor is a phase that keeps paying for cores.",
+                          "properties": {
+                            "model": { "const": "amdahl" },
+                            "floor_ms": { "type": "number" },
+                            "scaled_ms": { "type": "number" },
+                            "r2": { "type": ["number", "null"] },
+                            "resid_max_pct": { "type": ["number", "null"], "minimum": 0 },
+                            "n_points": { "type": "integer", "minimum": 2 }
+                          }
+                        },
+                        { "type": "null", "description": "Fewer than two widths measured." }
+                      ]
+                    }
+                  }
+                },
+                "decode": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["points", "fit"],
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["threads", "kv_fill", "tokens", "tps"],
+                        "properties": {
+                          "threads": { "type": "integer", "minimum": 1, "description": "n_threads at this point." },
+                          "kv_fill": { "type": "integer", "minimum": 0, "description": "KV depth before the burst; identical across widths, so the rates compare. Deep by preference — shallow, there is almost no KV to attend over and the scaling flattens into noise." },
+                          "tokens": { "type": "integer", "minimum": 2 },
+                          "tps": { "type": "number", "minimum": 0 }
+                        }
+                      }
+                    },
+                    "fit": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["model", "rate_max_tps", "threads_scale", "r2", "resid_max_pct", "n_points"],
+                          "description": "Saturating form: tok/s = rate_max_tps · (1 − e^(−N / threads_scale)). Width for X% of peak is −threads_scale · ln(1 − X), which is the number a power-management caller wants. Chosen over Amdahl and over a hard-knee roofline by fit against a ten-point ladder; saturation is gradual, so no single width is free.",
+                          "properties": {
+                            "model": { "const": "saturating" },
+                            "rate_max_tps": { "type": "number", "minimum": 0, "description": "The asymptote: tok/s an unbounded width would approach." },
+                            "threads_scale": { "type": "number", "exclusiveMinimum": 0, "description": "Characteristic width of the saturation; small means decode stops rewarding cores early." },
+                            "r2": { "type": ["number", "null"] },
+                            "resid_max_pct": { "type": ["number", "null"], "minimum": 0 },
+                            "n_points": { "type": "integer", "minimum": 2 }
+                          }
+                        },
+                        { "type": "null", "description": "Fewer than two widths measured." }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            { "type": "null", "description": "No ladder: a GPU lane, an unhealthy cell, or a trace predating the measurement." }
+          ]
         },
         "warmup_ms": { "type": ["number", "null"], "minimum": 0, "description": "The sweep spawn's warmup span, which walks every dispatch width the pass will use. Compute pipelines are built lazily on first use, so on a lane that compiles them this is the driver building this model's pipeline set from scratch — a real first-launch cost, normally invisible because the driver caches it per machine. The harness hands each cell's sweep an empty cache directory to make it deterministic. On a lane that compiles nothing it is just the warmup's own compute; shader_bytes distinguishes the two. Null when the spawn emitted nothing." },
         "shader_bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Bytes that compile left in the cache directory — the on-disk size of the compiled pipeline set, 0 where there was nothing to compile. Null when unmeasurable." },

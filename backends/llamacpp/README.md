@@ -67,6 +67,13 @@ root: `uv run --project harness bench check --backend llamacpp --models models`.
   `use_mmap`. Thread affinity is *not* set — and on Apple it cannot be
   (`ggml_thread_apply_affinity` is a no-op there), so a count is a request for N
   threads, not a choice of which cores run them.
+- On CPU lanes `sweep` also walks a thread ladder (`thread_prefill` /
+  `thread_decode`), repointing both pools on the live context with
+  `llama_set_n_threads` so the loaded model is reused — load + warmup is ~90% of a
+  cold spawn and none of the measurement, which is what makes the indicator cost
+  seconds. Widths go down from the lane's default; prefill is timed from an empty
+  cache, decode at a fill the pass already primed (deep by preference — shallow,
+  there is almost no KV to attend over and the scaling flattens into noise).
 - The binary is ad-hoc signed on macOS (`entitlements.plist`,
   `com.apple.security.get-task-allow`) so `task_for_pid` stays available to
   the sampler.

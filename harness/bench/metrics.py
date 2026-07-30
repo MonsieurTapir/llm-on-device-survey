@@ -20,6 +20,8 @@ brain-check) pools token-weighted across its turns.
 
 from __future__ import annotations
 
+import math
+
 NS_PER_MS = 1e6
 NS_PER_S = 1e9
 
@@ -131,6 +133,89 @@ def prefill_fit(chunks: list[dict]) -> dict | None:
         "resid_max_pct": round(max(abs(r) for r in resid) / my * 100, 2) if my else None,
         "n_points": n,
     }
+
+
+def _quality(observed: list[float], predicted: list[float]) -> dict:
+    """r² and worst residual for a fit, as the other fits report them."""
+    mean = sum(observed) / len(observed)
+    resid = [y - p for y, p in zip(observed, predicted, strict=True)]
+    ss_tot = sum((y - mean) ** 2 for y in observed)
+    ss_res = sum(r * r for r in resid)
+    return {
+        "r2": round(1 - ss_res / ss_tot, 5) if ss_tot else None,
+        "resid_max_pct": round(max(abs(r) for r in resid) / mean * 100, 2) if mean else None,
+        "n_points": len(observed),
+    }
+
+
+def thread_prefill_fit(points: list[dict]) -> dict | None:
+    """Amdahl's form for prefill against intra-op width: `ms = floor + scaled/N`.
+
+    Prefill is compute-bound, so the split is the useful one: `scaled_ms` is the
+    work that threads actually divide, `floor_ms` the part that no width removes.
+    A small floor relative to a single thread's total is a phase that keeps paying
+    for cores — the opposite of decode, which saturates.
+
+    Least squares on 1/N, which is linear, so three points give two parameters and
+    one residual to judge them by. None below two points."""
+    pts = [(1.0 / p["threads"], p["ms"]) for p in points if p["threads"] > 0]
+    if len(pts) < 2:
+        return None
+    n = len(pts)
+    mx = sum(x for x, _ in pts) / n
+    my = sum(y for _, y in pts) / n
+    sxx = sum((x - mx) ** 2 for x, _ in pts)
+    if sxx == 0:
+        return None
+    scaled = sum((x - mx) * (y - my) for x, y in pts) / sxx
+    floor = my - scaled * mx
+    return {"model": "amdahl", "floor_ms": round(floor, 3), "scaled_ms": round(scaled, 3),
+            **_quality([y for _, y in pts], [floor + scaled * x for x, _ in pts])}
+
+
+def thread_decode_fit(points: list[dict]) -> dict | None:
+    """Saturating form for decode against intra-op width:
+    `tok/s = rate_max · (1 − e^(−N / threads_scale))`.
+
+    Decode is bandwidth-bound and stops rewarding cores early, so Amdahl's
+    hyperbola is the wrong shape — measured against a ten-point ladder it leaves
+    S-shaped residuals (under at 1–2 threads, over at 3–4) because the real curve
+    climbs more slowly and then saturates harder than a hyperbola can. A hard-knee
+    roofline fits worse still: saturation is gradual, so there is no single width
+    that is free. This form beat both, and its `threads_scale` is the number a
+    caller wants — width for X% of peak is `−threads_scale · ln(1 − X)`.
+
+    Fitted by scanning `threads_scale`, with `rate_max` solved in closed form at
+    each step (the model is linear in it), so the result is deterministic and needs
+    no solver. None below two points."""
+    pts = [(p["threads"], p["tps"]) for p in points if p["threads"] > 0 and p["tps"] > 0]
+    if len(pts) < 2:
+        return None
+
+    def solve(scale: float) -> tuple[float, float]:
+        """(sum of squares, rate_max) at this scale."""
+        shape = [1.0 - math.exp(-n / scale) for n, _ in pts]
+        denom = sum(s * s for s in shape)
+        if denom == 0:
+            return float("inf"), 0.0
+        rate_max = sum(y * s for (_, y), s in zip(pts, shape, strict=True)) / denom
+        return sum((y - rate_max * s) ** 2 for (_, y), s in zip(pts, shape, strict=True)), rate_max
+
+    lo, hi = 0.05, 4.0 * max(n for n, _ in pts)
+    best = (float("inf"), 0.0, lo)
+    for _ in range(5):  # coarse-to-fine; the residual is unimodal in scale here
+        step = (hi - lo) / 200
+        for i in range(201):
+            scale = lo + step * i
+            ss, rate_max = solve(scale)
+            if ss < best[0]:
+                best = (ss, rate_max, scale)
+        lo, hi = max(0.05, best[2] - step * 4), best[2] + step * 4
+    _, rate_max, scale = best
+    predicted = [rate_max * (1.0 - math.exp(-n / scale)) for n, _ in pts]
+    return {"model": "saturating", "rate_max_tps": round(rate_max, 3),
+            "threads_scale": round(scale, 4),
+            **_quality([y for _, y in pts], predicted)}
 
 
 def ubatch_points(chunks: list[dict]) -> list[dict]:

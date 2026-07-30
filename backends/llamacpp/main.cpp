@@ -688,6 +688,13 @@ class Session {
         return prefill(tokens, context_before);
     }
 
+    // Repoint both intra-op pools on the live context. The thread ladder rides
+    // the loaded model this way, so it pays no second model-load or warmup —
+    // that setup is ~90% of a cold spawn and none of the measurement.
+    void set_threads(Threads threads) {
+        llama_set_n_threads(context_.get(), threads.decode, threads.batch);
+    }
+
     // Trim the cache down to `fill` tokens. Recurrent/hybrid caches refuse
     // partial truncation — false then; 0 always succeeds (clear).
     bool trim_cache(int fill) {
@@ -1049,6 +1056,61 @@ constexpr int kSweepContextFallback = 2048 + 128;
 // role, so three exact allocator numbers over-determine it — no repeats.
 constexpr std::array<int, 3> kMemoryContexts{512, 2048, 8192};
 
+// --- the thread ladder -------------------------------------------------------
+// How each phase scales with intra-op width, on CPU lanes only. The two phases
+// answer differently — prefill is compute-bound and keeps taking cores, decode
+// saturates a shared memory path and stops caring early — so the pair says which
+// threads are actually buying throughput. That is what a low-power operating
+// mode needs, and llama.cpp can express it, since the batch and decode pools are
+// separately settable.
+//
+// Small work units, deliberately: only the *ratio* between widths is wanted, so
+// a narrower chunk and a short burst carry the same shape for a fraction of the
+// cost. They are not comparable to the main ladder's numbers, and are not an
+// operating point — the same standing as the ubatch subdivision above.
+//
+// The two phases are sampled at different depths, each cheap where it is
+// measured, each internally consistent across widths (all a ratio needs):
+// prefill from an empty cache, so it costs one narrow chunk and no priming;
+// decode at a fill the main ladder has *already* primed and stopped at, so it
+// costs nothing but the burst. Depth matters for decode specifically — at a
+// shallow fill there is almost no KV to attend over, the per-token work is
+// nearly all weight streaming, and the width scaling flattens into noise.
+//
+// The ladder walks *down* from the lane's own default. On linux and windows that
+// default is already every physical core and the only way up is SMT, which
+// measurably costs both phases. macOS is the one platform with real headroom
+// above it (the default takes only the top performance cluster); reaching it
+// needs hw.physicalcpu rather than this ladder, and is left out.
+constexpr int kThreadChunk        = 128;  // prefill work unit, from an empty cache
+constexpr int kThreadDecodeTokens = 16;   // decode burst length
+// Preferred fill for the decode half — the job's own context scale, and reached
+// by every lane that finishes a sweep. A lane too slow to get there falls back to
+// the deepest fill it did visit rather than dropping the measurement; kv_fill
+// travels with each point, so a shallower one is visible instead of implied.
+constexpr int kThreadDecodeFill = 2048; // one of kDecodeFills
+int preferred_thread_fill(int depth) {
+    int chosen = -1;
+    for (const int fill : kDecodeFills) { // descending
+        if (fill >= depth) continue;      // never reached
+        chosen = fill;
+        if (fill <= kThreadDecodeFill) break; // deepest at or below the preference
+    }
+    return chosen;
+}
+// Highest width first so the anchor point always lands and the slowest, least
+// informative width is the one a tight budget drops.
+std::vector<int> thread_ladder(int width) {
+    std::vector<int> ladder;
+    for (const int divisor : {1, 2, 4}) {
+        const int candidate = std::max(1, width / divisor);
+        if (std::find(ladder.begin(), ladder.end(), candidate) == ladder.end())
+            ladder.push_back(candidate);
+    }
+    return ladder;
+}
+constexpr int64_t kThreadLadderBudgetNs = 20'000'000'000;
+
 int cmd_sweep(const Arguments & args) {
     const Device device       = select_device(args.provider);
     const Threads threads     = resolve_threads(args.threads, args.threads_batch);
@@ -1073,6 +1135,8 @@ int cmd_sweep(const Arguments & args) {
 
     json prefill_chunks = json::array();
     json decode_points  = json::array();
+    json thread_decode  = json::array();
+    json thread_prefill = json::array();
     if (healthy) {
         const int64_t timed_start_ns = monotonic_ns();
         const int64_t budget_ns      = static_cast<int64_t>(args.deadline_ms) * 1'000'000;
@@ -1111,6 +1175,7 @@ int cmd_sweep(const Arguments & args) {
                                      {"repeats", json::array({std::move(entry)})}});
         };
         if (depth + kDecodeTokens <= session.n_ctx()) measure_fill(depth);
+        const int ladder_fill = preferred_thread_fill(depth);
         for (const int fill : kDecodeFills) {
             if (fill >= depth) continue; // beyond (or equal to) what the pass reached
             if (!session.trim_cache(fill)) { // hybrid/recurrent: only 0 is reachable
@@ -1118,7 +1183,47 @@ int cmd_sweep(const Arguments & args) {
                 continue;
             }
             measure_fill(fill);
+            // The decode half of the thread ladder, taken here because this fill
+            // is already primed and already deep enough to show the scaling.
+            if (device.is_cpu && fill == ladder_fill) {
+                for (const int width : thread_ladder(threads.decode)) {
+                    session.set_threads({width, threads.batch});
+                    if (!session.trim_cache(fill)) break; // the burst grew the cache
+                    thread_decode.push_back(
+                        {{"threads", width},
+                         {"kv_fill", fill},
+                         {"decode", session.decode_point(fill, kThreadDecodeTokens,
+                                                         kThreadDecodeTokens,
+                                                         kDecodePointBudgetNs)}});
+                }
+                session.set_threads(threads);
+                if (!session.trim_cache(fill)) break;
+            }
         }
+    }
+
+    // The prefill half of the thread ladder: one narrow chunk per width from an
+    // empty cache. CPU lanes only — a GPU lane's pools serve leftover host-side
+    // ops, so their width says nothing about the device.
+    if (healthy && device.is_cpu) {
+        const int64_t ladder_start = monotonic_ns();
+        for (const int width : thread_ladder(threads.batch)) {
+            if (!thread_prefill.empty() &&
+                monotonic_ns() - ladder_start >= kThreadLadderBudgetNs) {
+                std::cerr << "llamacpp: thread ladder past budget — stopped before " << width
+                          << " batch threads\n";
+                break;
+            }
+            session.set_threads({threads.decode, width});
+            if (!session.trim_cache(0)) break; // cannot reach a known depth
+            // One untimed pass so the pool exists at this width before anything
+            // is timed: spinning up threads is setup, not inference.
+            session.append_chunk(0, kThreadDecodeTokens);
+            if (!session.trim_cache(0)) break;
+            thread_prefill.push_back(
+                {{"threads", width}, {"prefill", session.append_chunk(0, kThreadChunk)}});
+        }
+        session.set_threads(threads); // leave the session on its operating point
     }
 
     // Geometry reads the live context, so it comes before the memory ladder
@@ -1146,6 +1251,8 @@ int cmd_sweep(const Arguments & args) {
     out["geometry"]       = std::move(geometry);
     out["prefill_chunks"] = std::move(prefill_chunks);
     out["decode_points"]  = std::move(decode_points);
+    out["thread_prefill"] = std::move(thread_prefill);
+    out["thread_decode"]  = std::move(thread_decode);
     write_json(args.out, out);
     return healthy ? 0 : 2; // mirror `run`: nonzero when an expect failed
 }

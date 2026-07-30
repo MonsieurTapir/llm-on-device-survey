@@ -44,6 +44,12 @@ results/
   report reads at the job's context against the sampled footprint.
 - `load_sweeps` — one row per measured sweep point (prefill ms vs tokens,
   decode tok/s vs KV fill), each with its min–max spread and repeat count.
+- `load_thread_scaling` — one row per thread-ladder point (`phase` × `threads`
+  → `tps`): what an intra-op thread buys each phase on a CPU lane. Prefill keeps
+  taking cores; decode saturates early. `load_results` carries the fitted
+  summary as `thr_*`, including `thr_decode_threads_p90` (the width reaching 90%
+  of peak decode) and `thr_prefill_floor_pct` (the share of prefill no width
+  removes) — the pair that sizes a reduced-power operating mode.
 - `load_probes` — one row per device-ceiling point (GEMM TFLOP/s, copy GB/s).
 
 Every loader pins the results `schema_version` — a file at another version is

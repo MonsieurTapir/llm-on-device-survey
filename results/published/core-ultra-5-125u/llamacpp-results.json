@@ -446,6 +446,7 @@
             "penalty_pct": 11.39
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 8872.14,
         "shader_bytes": 1679386,
         "shader_cache": "redirected"
@@ -802,6 +803,7 @@
             "penalty_pct": 4.02
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 20151.52,
         "shader_bytes": 1310728,
         "shader_cache": "redirected"
@@ -1212,6 +1214,7 @@
             "penalty_pct": 0.31
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 13519.31,
         "shader_bytes": 1875154,
         "shader_cache": "redirected"
@@ -1582,6 +1585,7 @@
             "penalty_pct": -3.07
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 30394.56,
         "shader_bytes": 1310728,
         "shader_cache": "redirected"
@@ -1920,6 +1924,7 @@
             "penalty_pct": 1.56
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 23424.11,
         "shader_bytes": 2470812,
         "shader_cache": "redirected"
@@ -2327,6 +2332,7 @@
             "penalty_pct": 5.52
           }
         ],
+        "thread_scaling": null,
         "warmup_ms": 13303.53,
         "shader_bytes": 1310728,
         "shader_cache": "redirected"

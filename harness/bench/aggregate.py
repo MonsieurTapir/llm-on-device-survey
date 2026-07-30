@@ -204,9 +204,40 @@ def sweep_result(cell_sweep: dict, *, shader_cache: str, shader_bytes: int | Non
         "decode": decode,
         "fit": metrics.prefill_fit(prefill),
         "ubatch": metrics.ubatch_points(prefill),
+        "thread_scaling": _thread_scaling(ev),
         "warmup_ms": warmup_ms,
         "shader_bytes": shader_bytes,
         "shader_cache": shader_cache,
+    }
+
+
+def _thread_scaling(ev: dict | None) -> dict | None:
+    """The thread ladder, as points plus one fit per phase. None on a lane that
+    measured none — a GPU lane, an unhealthy cell, or a trace predating the ladder.
+
+    The two phases get different fit shapes on purpose (see `metrics`): prefill is
+    compute-bound and Amdahl-clean, decode saturates a shared memory path and needs
+    a saturating form. Rates are derived here so a reader never has to; the work
+    units are smaller than the main ladder's, so these numbers speak only relative
+    to each other."""
+    if not ev:
+        return None
+    prefill, decode = [], []
+    for p in ev.get("thread_prefill") or []:
+        chunk = p["prefill"]
+        ms = round((chunk["end_ns"] - chunk["start_ns"]) / NS_PER_MS, 2)
+        prefill.append({"threads": p["threads"], "tokens": chunk["tokens_count"], "ms": ms,
+                        "tps": round(chunk["tokens_count"] / (ms / 1e3), 2) if ms else None})
+    for p in ev.get("thread_decode") or []:
+        stamps = p["decode"]["token_ns"]
+        tps = (len(stamps) - 1) / ((stamps[-1] - stamps[0]) / NS_PER_S)
+        decode.append({"threads": p["threads"], "kv_fill": p["kv_fill"],
+                       "tokens": len(stamps), "tps": round(tps, 2)})
+    if not prefill and not decode:
+        return None
+    return {
+        "prefill": {"points": prefill, "fit": metrics.thread_prefill_fit(prefill)},
+        "decode": {"points": decode, "fit": metrics.thread_decode_fit(decode)},
     }
 
 

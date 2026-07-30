@@ -173,6 +173,17 @@
         "end_ns": { "type": "integer", "minimum": 0 }
       }
     },
+    "decodeRepeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token_ns", "start_ns", "end_ns"],
+      "description": "One decode burst, stamped per token. Steady-state rate is over steps 2..N, so the first step's prefill tail never enters the number.",
+      "properties": {
+        "token_ns": { "type": "array", "minItems": 2, "items": { "type": "integer", "minimum": 0 } },
+        "start_ns": { "type": "integer", "minimum": 0 },
+        "end_ns": { "type": "integer", "minimum": 0 }
+      }
+    },
     "decodeEvent": {
       "type": "object",
       "additionalProperties": false,
@@ -321,17 +332,35 @@
               "repeats": {
                 "type": "array",
                 "minItems": 1,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["token_ns", "start_ns", "end_ns"],
-                  "properties": {
-                    "token_ns": { "type": "array", "minItems": 2, "items": { "type": "integer", "minimum": 0 } },
-                    "start_ns": { "type": "integer", "minimum": 0 },
-                    "end_ns": { "type": "integer", "minimum": 0 }
-                  }
-                }
+                "items": { "$ref": "#/$defs/decodeRepeat" }
               }
+            }
+          }
+        },
+        "thread_prefill": {
+          "type": "array",
+          "description": "Optional — absent on a backend that does not measure it, and on traces predating it. How prefill scales with intra-op thread width: one narrow chunk per width, from an empty cache, so no priming is paid. CPU lanes only — a GPU lane's pools serve leftover host-side ops, so their width says nothing about the device — and empty when the gate failed. Widths walk DOWN from the lane's own default, since above it lies only SMT, which measurably costs both phases. The work unit is smaller than the main ladder's and NOT comparable to it: only the ratio between widths is claimed. A scaling indicator, not a second operating point, like the ubatch subdivision. A short array is a width the budget did not reach.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["threads", "prefill"],
+            "properties": {
+              "threads": { "type": "integer", "minimum": 1, "description": "n_threads_batch at this point; n_threads stays at the lane's default." },
+              "prefill": { "$ref": "#/$defs/prefillEvent" }
+            }
+          }
+        },
+        "thread_decode": {
+          "type": "array",
+          "description": "Optional, as thread_prefill. How decode scales with intra-op thread width: one short burst per width at a fill the pass already primed and stopped at, so only the burst is paid. Same scope, direction and caveats as thread_prefill. The fill is deliberately deep — shallow, there is almost no KV to attend over, per-token work is nearly all weight streaming, and the width scaling flattens into noise.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["threads", "kv_fill", "decode"],
+            "properties": {
+              "threads": { "type": "integer", "minimum": 1, "description": "n_threads at this point; n_threads_batch stays at the lane's default." },
+              "kv_fill": { "type": "integer", "minimum": 0, "description": "KV depth before the burst; identical across widths, so the rates compare." },
+              "decode": { "$ref": "#/$defs/decodeRepeat" }
             }
           }
         }

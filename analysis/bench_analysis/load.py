@@ -48,6 +48,12 @@ Three frames, one per kind of measurement:
   `kv_fill`. Both phases carry their `threads_*` width. Points survive a non-ok
   sweep status — partial data still informs.
 
+- `load_thread_scaling` — one row per thread-ladder point: `phase`
+  ("prefill" | "decode") × `threads` → `tps`. How each phase pays for intra-op
+  width on a CPU lane. The two disagree sharply — prefill keeps taking cores,
+  decode saturates early — which is what sizes a reduced-power operating mode;
+  `load_results` carries the fitted summary (`thr_*`).
+
 - `load_probes` — one row per ceiling point: `kind` ("gemm" | "h2d" | "d2h" |
   "d2d") with the measured `tflops` or `gbs`, plus the `threads_*` the lane
   probed at. A CPU gemm ceiling is a property of that width, and on Apple it is
@@ -60,6 +66,7 @@ A missing number is *visible*, not silently absent.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -142,6 +149,33 @@ def _threads(into: dict, threads: dict | None) -> None:
         into[f"threads_{phase}"] = (threads or {}).get(phase)
 
 
+def _thread_scaling(into: dict, scaling: dict | None) -> None:
+    """The thread ladder's two fits as columns, plus the one derived number a
+    caller actually acts on.
+
+    `thr_prefill_floor_pct` is how much of a single thread's chunk time no width
+    removes — small means prefill keeps paying for cores. `thr_decode_threads_p90`
+    inverts the saturating fit to the width that reaches 90% of peak decode:
+    `-threads_scale · ln(0.1)`. Together they size a reduced-power mode, and they
+    pull in opposite directions, which is why the phases have separate pools.
+
+    All NaN on a lane with no ladder (GPU lanes, unhealthy cells, older traces)."""
+    prefill = ((scaling or {}).get("prefill") or {}).get("fit") or {}
+    decode = ((scaling or {}).get("decode") or {}).get("fit") or {}
+    into["thr_prefill_floor_ms"] = prefill.get("floor_ms")
+    into["thr_prefill_scaled_ms"] = prefill.get("scaled_ms")
+    into["thr_prefill_r2"] = prefill.get("r2")
+    into["thr_decode_rate_max_tps"] = decode.get("rate_max_tps")
+    into["thr_decode_threads_scale"] = decode.get("threads_scale")
+    into["thr_decode_r2"] = decode.get("r2")
+    floor, scaled = prefill.get("floor_ms"), prefill.get("scaled_ms")
+    into["thr_prefill_floor_pct"] = (
+        round(100 * floor / (floor + scaled), 2) if floor is not None and floor + scaled else None
+    )
+    scale = decode.get("threads_scale")
+    into["thr_decode_threads_p90"] = round(-scale * math.log(0.1), 2) if scale else None
+
+
 def load_results(root: str | Path = "results") -> pd.DataFrame:
     """The validation-job frame: one row per (machine, backend, model, quant,
     provider). Raises ValueError on a schema_version mismatch; empty DataFrame
@@ -170,6 +204,7 @@ def load_results(root: str | Path = "results") -> pd.DataFrame:
             row["fit_slope_ms_per_1k"] = fit.get("slope_ms_per_1k")
             row["fit_r2"] = fit.get("r2")
             row["fit_resid_max_pct"] = fit.get("resid_max_pct")
+            _thread_scaling(row, run["sweep"].get("thread_scaling"))
             # Dispatch-width sensitivity, worst of the measured depths: how much
             # this silicon minds a narrower micro-batch.
             penalties = [u["penalty_pct"] for u in run["sweep"]["ubatch"]
@@ -228,6 +263,30 @@ def load_memory(root: str | Path = "results") -> pd.DataFrame:
                              "weights_mb": round(sum(x["model_bytes"] for x in b) / 1e6, 1),
                              "kv_mb": round(sum(x["context_bytes"] for x in b) / 1e6, 1),
                              "compute_mb": round(sum(x["compute_bytes"] for x in b) / 1e6, 1)})
+    return pd.DataFrame(rows)
+
+
+def load_thread_scaling(root: str | Path = "results") -> pd.DataFrame:
+    """The thread-ladder frame: one row per (machine, model, provider, phase,
+    threads), with the rate at that intra-op width.
+
+    `phase` is "prefill" | "decode". Rates compare *within* a (lane, model, phase)
+    — the ladder's work units are smaller than the main sweep's and deliberately
+    not comparable to it. `kv_fill` is NaN for prefill rows (measured from an empty
+    cache) and the primed depth for decode rows. Empty when no lane measured one."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for run in doc["runs"]:
+            scaling = run["sweep"].get("thread_scaling")
+            if not scaling:
+                continue
+            run_base = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            for phase in ("prefill", "decode"):
+                for p in (scaling.get(phase) or {}).get("points") or []:
+                    rows.append({**run_base, "phase": phase, "threads": p["threads"],
+                                 "tokens": p["tokens"], "tps": p["tps"],
+                                 "kv_fill": p.get("kv_fill"),
+                                 "ms": p.get("ms")})
     return pd.DataFrame(rows)
 
 
