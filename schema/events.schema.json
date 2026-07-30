@@ -10,7 +10,7 @@
   ],
   "$defs": {
     "shared": {
-      "schema_version": { "const": "1", "description": "Events schema version." },
+      "schema_version": { "const": "2", "description": "Events schema version." },
       "backend": { "enum": ["llamacpp"] },
       "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*:[0-9]+$", "description": "The device lane this spawn used: <family>:<index>, e.g. cpu:0, vulkan:1 — one lane per compute device, indexed within its family in registry order." },
       "device": { "type": "string", "description": "Human device label, e.g. 'AMD Ryzen 9 7950X' or 'NVIDIA RTX 5080'." },
@@ -31,7 +31,17 @@
       "description": "Exact stack identity == `<exe> version`. Shape is backend-specific; threads is shared.",
       "required": ["threads"],
       "properties": {
-        "threads": { "type": "integer", "minimum": 1, "description": "Intra-op thread count, pinned to physical cores." }
+        "threads": { "$ref": "#/$defs/threads" }
+      }
+    },
+    "threads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decode", "batch"],
+      "description": "Intra-op thread counts actually used, one per phase — the batch pool serves prefill, the decode pool single-token steps. Not derivable from the machine block: what \"all cores\" means is a per-OS decision (linux counts every physical core, macOS only the top performance cluster), and either count may be overridden per spawn. A CPU-lane rate is uninterpretable without it.",
+      "properties": {
+        "decode": { "type": "integer", "minimum": 1, "description": "Threads for single-token decode steps (llama.cpp n_threads)." },
+        "batch": { "type": "integer", "minimum": 1, "description": "Threads for batched prefill (llama.cpp n_threads_batch); also the probe's GEMM pool." }
       }
     },
     "span": {

@@ -206,9 +206,31 @@ Device select_device(std::string_view provider) {
                      "] (a lane is <family>:<index> as listed by `providers`)");
 }
 
+// ---------------------------------------------------------------- threads
+// The intra-op pools, one per phase. `common_cpu_get_num_physical_cores()` is
+// llama.cpp's default and it is *not* one rule: on linux it counts every
+// physical core, on macOS only the top performance cluster
+// (hw.perflevel0.physicalcpu), on windows physical cores via
+// GetLogicalProcessorInformationEx. So the resolved counts travel with the
+// numbers rather than being re-derived downstream from the machine block.
+struct Threads {
+    int decode = 0;
+    int batch  = 0;
+
+    // What the events/version JSON reports. Both counts, always — the default
+    // path reports the same number twice rather than nothing.
+    json to_json() const { return {{"decode", decode}, {"batch", batch}}; }
+};
+
+Threads resolve_threads(int decode_override, int batch_override) {
+    const int fallback = common_cpu_get_num_physical_cores();
+    return {decode_override > 0 ? decode_override : fallback,
+            batch_override > 0 ? batch_override : fallback};
+}
+
 // ---------------------------------------------------------------- versions
 // Exact stack identity; embedded verbatim as the events `versions` object.
-json versions_json() {
+json versions_json(const Threads & threads) {
     json out = {
         {"backend", "llamacpp"},
         {"llama_cpp_commit", llama_commit()},
@@ -217,7 +239,7 @@ json versions_json() {
         {"target", llama_build_target()},
         {"system_info", llama_print_system_info()},
         {"use_mmap", false}, // the shipped configuration (see Session::open)
-        {"threads", common_cpu_get_num_physical_cores()},
+        {"threads", threads.to_json()},
     };
 #if defined(__APPLE__)
     // Which way the Metal shader library was built: embedded source compiled
@@ -498,7 +520,7 @@ class Session {
     // at a smaller one instead of losing the whole spawn (the model loads once;
     // n_ctx in the geometry block records what was actually reached).
     static Session open(const std::string & model_path, const Device & device,
-                        std::vector<int> context_lengths, int thread_count, json & load_phases) {
+                        std::vector<int> context_lengths, Threads threads, json & load_phases) {
         llama_model_params model_params = llama_model_default_params();
         model_params.use_mmap           = false; // ship-as-is: weights read into allocations
         // Pin to exactly the selected device (NULL-terminated list). For the cpu EP this
@@ -529,7 +551,11 @@ class Session {
             context_params.n_ctx   = context_length;
             context_params.n_batch = context_length; // one llama_decode per prefill
             context_params.n_ubatch = std::min(512, context_length); // deployment default
-            context_params.n_threads = context_params.n_threads_batch = thread_count;
+            // Separate pools: batched prefill and single-token decode reach their
+            // best counts at different widths, and llama.cpp keeps two threadpools
+            // precisely so they can differ.
+            context_params.n_threads       = threads.decode;
+            context_params.n_threads_batch = threads.batch;
             if (device.is_cpu) context_params.offload_kqv = false; // keep the KV cache off any GPU
 
             load_phases.push_back(load_event("context-init", time_span([&] {
@@ -809,6 +835,11 @@ struct Arguments {
     std::string out         = "-";
     int         iters       = 1;
     int         deadline_ms = 0; // 0 = no soft cap
+    // 0 = llama.cpp's own default for this OS (see resolve_threads). Overrides
+    // exist to answer "does this lane want more/fewer threads" on demand; the
+    // survey's published numbers are always the default.
+    int         threads       = 0;
+    int         threads_batch = 0;
 };
 struct Cli {
     CLI::App   app{"bench-llamacpp — llama.cpp backend"};
@@ -873,6 +904,20 @@ struct Cli {
             ->required();
         probe_cmd->add_option("--out", args.out, "Events output path, or '-' for stdout")
             ->capture_default_str();
+
+        // Thread overrides, on every measuring subcommand (probe's GEMM runs on
+        // the batch pool). Off by default: what a lane's default count *is* is
+        // itself a measurement, so it is reported rather than chosen here.
+        for (CLI::App * cmd : {run_cmd, sweep_cmd, probe_cmd}) {
+            cmd->add_option("-t,--threads", args.threads,
+                            "Intra-op threads for single-token decode "
+                            "(0 = llama.cpp's default for this OS)")
+                ->capture_default_str();
+            cmd->add_option("-b,--threads-batch", args.threads_batch,
+                            "Intra-op threads for batched prefill, and for the probe's GEMM "
+                            "(0 = llama.cpp's default for this OS)")
+                ->capture_default_str();
+        }
     }
 
     Subcommand which() const {
@@ -896,8 +941,8 @@ void write_json(const std::string & destination, const json & value) {
 }
 
 json event_header(const char * mode, const Arguments & args, const Device & device,
-                  const json & anchor) {
-    json header = {{"schema_version", "1"},
+                  const Threads & threads, const json & anchor) {
+    json header = {{"schema_version", "2"},
                    {"backend", "llamacpp"},
                    {"mode", mode},
                    {"provider", args.provider},
@@ -906,7 +951,7 @@ json event_header(const char * mode, const Arguments & args, const Device & devi
         header["model"] = model_name_from_path(args.model);
         header["quant"] = args.quant;
     }
-    header["versions"] = versions_json();
+    header["versions"] = versions_json(threads);
     header["anchor"]   = anchor;
     return header;
 }
@@ -915,12 +960,12 @@ json event_header(const char * mode, const Arguments & args, const Device & devi
 int cmd_run(const Arguments & args) {
     const Task   task         = load_task(args.task);
     const Device device       = select_device(args.provider);
-    const int    thread_count = common_cpu_get_num_physical_cores();
+    const Threads threads      = resolve_threads(args.threads, args.threads_batch);
     const json   anchor       = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
 
     json    load_phases = json::array();
     Session session =
-        Session::open(args.model, device, {task.context_length}, thread_count, load_phases);
+        Session::open(args.model, device, {task.context_length}, threads, load_phases);
     session.warmup(load_phases, &task);
 
     // Timed iterations (≤K). Iteration 1 always completes; later ones are skipped
@@ -938,7 +983,7 @@ int cmd_run(const Arguments & args) {
         iterations.push_back(session.run_iteration(task, healthy));
     }
 
-    json out       = event_header("run", args, device, anchor);
+    json out       = event_header("run", args, device, threads, anchor);
     out["task"]    = task.name;
     out["healthy"] = healthy;
     out["load"]    = std::move(load_phases);
@@ -1006,12 +1051,12 @@ constexpr std::array<int, 3> kMemoryContexts{512, 2048, 8192};
 
 int cmd_sweep(const Arguments & args) {
     const Device device       = select_device(args.provider);
-    const int    thread_count = common_cpu_get_num_physical_cores();
+    const Threads threads     = resolve_threads(args.threads, args.threads_batch);
     const json   anchor       = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
 
     json    load_phases = json::array();
     Session session = Session::open(args.model, device, {kSweepContext, kSweepContextFallback},
-                                    thread_count, load_phases);
+                                    threads, load_phases);
     session.warmup(load_phases);
 
     // The gate: one iteration of the brain-check through the chat path. Not
@@ -1094,7 +1139,7 @@ int cmd_sweep(const Arguments & args) {
         if (!memory_points.empty()) geometry["memory_points"] = std::move(memory_points);
     }
 
-    json out       = event_header("sweep", args, device, anchor);
+    json out       = event_header("sweep", args, device, threads, anchor);
     out["healthy"] = healthy;
     if (!gate.is_null()) out["gate"] = std::move(gate);
     out["load"]           = std::move(load_phases);
@@ -1227,9 +1272,9 @@ json copy_points(ggml_backend_t backend, ggml_backend_buffer_type_t buffer_type)
 }
 
 int cmd_probe(const Arguments & args) {
-    const Device device       = select_device(args.provider);
-    const int    thread_count = common_cpu_get_num_physical_cores();
-    const json   anchor       = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
+    const Device  device  = select_device(args.provider);
+    const Threads threads = resolve_threads(args.threads, args.threads_batch);
+    const json    anchor  = {{"wall_unix_ns", wall_clock_ns()}, {"mono_ns", monotonic_ns()}};
 
     ggml_backend_t backend = ggml_backend_dev_init(device.handle, nullptr);
     if (!backend) throw BenchError("probe: cannot init backend for --ep " + args.provider);
@@ -1243,7 +1288,9 @@ int cmd_probe(const Arguments & args) {
         auto * reg = ggml_backend_dev_backend_reg(device.handle);
         auto   set_n_threads = reinterpret_cast<void (*)(ggml_backend_t, int)>(
             ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads"));
-        if (set_n_threads) set_n_threads(backend, thread_count);
+        // The GEMM shapes here are batched work, so they run the batch pool —
+        // the ceiling this probe reports is the one prefill can actually reach.
+        if (set_n_threads) set_n_threads(backend, threads.batch);
     }
     ggml_backend_buffer_type_t buffer_type = ggml_backend_dev_buffer_type(device.handle);
 
@@ -1251,7 +1298,7 @@ int cmd_probe(const Arguments & args) {
     for (const auto & [m, k] : kGemmShapes)
         gemm.push_back(gemm_point(backend, buffer_type, m, kGemmBatch, k));
 
-    json out    = event_header("probe", args, device, anchor);
+    json out    = event_header("probe", args, device, threads, anchor);
     out["gemm"] = std::move(gemm);
     out["copy"] = copy_points(backend, buffer_type);
     write_json(args.out, out);
@@ -1279,7 +1326,9 @@ int main(int argc, char ** argv) {
 
         switch (args.subcommand) {
         case Subcommand::Version:
-            std::cout << versions_json().dump() << '\n';
+            // No spawn to resolve against, so this reports the defaults this OS
+            // would pick — which is the point of asking `version` about threads.
+            std::cout << versions_json(resolve_threads(0, 0)).dump() << '\n';
             return 0;
         case Subcommand::Providers: // a GGUF runs on any compiled device; --model isn't loaded
             std::cout << json(available_providers()).dump() << '\n';

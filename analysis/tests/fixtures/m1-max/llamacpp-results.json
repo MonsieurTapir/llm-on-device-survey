@@ -1,281 +1,293 @@
 {
- "schema_version": "1",
- "backend": "llamacpp",
- "machine": {
-  "host": "m1-max",
-  "os": "macos",
-  "cpu": "Apple M1 Max",
-  "cpu_cores": 10,
-  "cpu_threads": 10,
-  "gpus": [
-   "Apple M1 Max"
-  ],
-  "memory": {
-   "total_gb": 64.0,
-   "channels": null,
-   "configured_mts": null,
-   "rated_mts": null,
-   "rank": null,
-   "dimms": null
-  }
- },
- "job_spawns": 2,
- "probes": [
-  {
-   "provider": "mtl",
-   "device": "Apple M1 Max",
-   "status": "ok",
-   "gemm": [
-    {
-     "m": 4096,
-     "n": 512,
-     "k": 4096,
-     "dtype": "f16",
-     "tflops_p50": 9.8,
-     "n_reps": 3
-    }
-   ],
-   "copy": [
-    {
-     "kind": "d2d",
-     "bytes": 268435456,
-     "gbs_p50": 350.0,
-     "n_reps": 3
-    },
-    {
-     "kind": "h2d",
-     "bytes": 268435456,
-     "gbs_p50": 340.0,
-     "n_reps": 3
-    }
-   ]
-  }
- ],
- "runs": [
-  {
-   "provider": "mtl",
-   "device": "Apple M1 Max",
-   "model": "gemma4-E2B",
-   "quant": "q4",
-   "healthy": true,
-   "vram_method": "unified",
-   "geometry": {
-    "n_layer": 2,
-    "n_embd": 64,
-    "n_head": 4,
-    "n_head_kv": 2,
-    "n_swa": 0,
-    "shared_kv_layers": 0,
-    "n_ctx_train": 4096,
-    "n_params": 1000000,
-    "file_bytes": 600000,
-    "context": {
-     "n_ctx": 2048,
-     "n_batch": 2048,
-     "n_ubatch": 512
-    },
-    "layers": [
-     {
-      "kind": "full",
-      "window": 0
-     },
-     {
-      "kind": "full",
-      "window": 0
-     }
+  "schema_version": "2",
+  "backend": "llamacpp",
+  "machine": {
+    "host": "m1-max",
+    "os": "macos",
+    "cpu": "Apple M1 Max",
+    "cpu_cores": 10,
+    "cpu_threads": 10,
+    "gpus": [
+      "Apple M1 Max"
     ],
-    "tensors": {
-     "embedding": {
-      "params": 100000,
-      "bytes": 60000
-     },
-     "body": {
-      "params": 900000,
-      "bytes": 540000
-     },
-     "head": {
-      "params": 0,
-      "bytes": 0
-     },
-     "tied_head": true
-    },
-    "buffers": [
-     {
-      "name": "CUDA0",
-      "model_bytes": 540000,
-      "context_bytes": 4096,
-      "compute_bytes": 1024
-     }
-    ]
-   },
-   "sweep": {
-    "status": "ok",
-    "prefill": [
-     {
-      "context": 0,
-      "tokens": 512,
-      "ms": 140.0
-     },
-     {
-      "context": 512,
-      "tokens": 512,
-      "ms": 147.68
-     },
-     {
-      "context": 1024,
-      "tokens": 256,
-      "ms": 83.12
-     },
-     {
-      "context": 1280,
-      "tokens": 256,
-      "ms": 83.12
-     },
-     {
-      "context": 1536,
-      "tokens": 512,
-      "ms": 163.04
-     },
-     {
-      "context": 2048,
-      "tokens": 512,
-      "ms": 170.72
-     },
-     {
-      "context": 2560,
-      "tokens": 512,
-      "ms": 178.4
-     },
-     {
-      "context": 3072,
-      "tokens": 512,
-      "ms": 186.08
-     },
-     {
-      "context": 3584,
-      "tokens": 512,
-      "ms": 193.76
-     }
-    ],
-    "decode": [
-     {
-      "kv_fill": 0,
-      "tokens": 64,
-      "tps_p50": 80.0,
-      "tps_min": 78.0,
-      "tps_max": 82.0,
-      "n_reps": 3
-     },
-     {
-      "kv_fill": 2048,
-      "tokens": 64,
-      "tps_p50": 75.0,
-      "tps_min": 74.0,
-      "tps_max": 76.0,
-      "n_reps": 3
-     }
-    ],
-    "fit": {
-     "width": 512,
-     "intercept_ms": 140.0,
-     "slope_ms_per_1k": 15.0,
-     "r2": 1.0,
-     "resid_max_pct": 0.0,
-     "n_points": 7
-    },
-    "ubatch": [
-     {
-      "context": 1024,
-      "width": 256,
-      "n_parts": 2,
-      "parts_ms": 166.24,
-      "full_ms_fitted": 155.36,
-      "penalty_pct": 7.0
-     }
-    ],
-    "warmup_ms": 990.0,
-    "shader_bytes": null,
-    "shader_cache": "unavailable"
-   },
-   "job": {
-    "status": "ok",
-    "task": "summarize-large",
-    "metrics": {
-     "cold_start_ms": [
-      5000,
-      5000
-     ],
-     "model_load_ms": [
-      900,
-      950
-     ],
-     "context_init_ms": [
-      100,
-      120
-     ],
-     "warmup_ms": [
-      50,
-      60
-     ],
-     "ttft_ms": [
-      700,
-      750
-     ],
-     "decode_tps": [
-      40.0,
-      35.0
-     ],
-     "prefill_tps": null,
-     "completion_ms": [
-      4000,
-      4200
-     ]
-    },
     "memory": {
-     "prefill_rss_peak_mb": [
-      1500,
-      1550
-     ],
-     "prefill_vram_peak_mb": null,
-     "decode_rss_peak_mb": [
-      1300,
-      1350
-     ],
-     "decode_vram_peak_mb": null,
-     "decode_rss_sustained_mb": [
-      1200,
-      1250
-     ],
-     "decode_vram_sustained_mb": null
-    },
-    "sample_completions": [
-     "The document describes ..."
-    ]
-   }
+      "total_gb": 64.0,
+      "channels": null,
+      "configured_mts": null,
+      "rated_mts": null,
+      "rank": null,
+      "dimms": null
+    }
   },
-  {
-   "provider": "mtl",
-   "device": "Apple M1 Max",
-   "model": "qwen3-4B",
-   "quant": "q4",
-   "healthy": false,
-   "unhealthy_reason": "brain-check decode mismatch",
-   "vram_method": "unified",
-   "geometry": null,
-   "sweep": {
-    "status": "skipped",
-    "prefill": [],
-    "decode": [],
-    "fit": null,
-    "ubatch": [],
-    "warmup_ms": null,
-    "shader_bytes": null,
-    "shader_cache": "unavailable"
-   },
-   "job": {
-    "status": "skipped",
-    "task": "summarize-large"
-   }
-  }
- ]
+  "job_spawns": 2,
+  "probes": [
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "status": "ok",
+      "gemm": [
+        {
+          "m": 4096,
+          "n": 512,
+          "k": 4096,
+          "dtype": "f16",
+          "tflops_p50": 9.8,
+          "n_reps": 3
+        }
+      ],
+      "copy": [
+        {
+          "kind": "d2d",
+          "bytes": 268435456,
+          "gbs_p50": 350.0,
+          "n_reps": 3
+        },
+        {
+          "kind": "h2d",
+          "bytes": 268435456,
+          "gbs_p50": 340.0,
+          "n_reps": 3
+        }
+      ],
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    }
+  ],
+  "runs": [
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "geometry": {
+        "n_layer": 2,
+        "n_embd": 64,
+        "n_head": 4,
+        "n_head_kv": 2,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 4096,
+        "n_params": 1000000,
+        "file_bytes": 600000,
+        "context": {
+          "n_ctx": 2048,
+          "n_batch": 2048,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 100000,
+            "bytes": 60000
+          },
+          "body": {
+            "params": 900000,
+            "bytes": 540000
+          },
+          "head": {
+            "params": 0,
+            "bytes": 0
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CUDA0",
+            "model_bytes": 540000,
+            "context_bytes": 4096,
+            "compute_bytes": 1024
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 140.0
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 147.68
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 83.12
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 83.12
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 163.04
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 170.72
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 178.4
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 186.08
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 193.76
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 80.0,
+            "tps_min": 78.0,
+            "tps_max": 82.0,
+            "n_reps": 3
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 75.0,
+            "tps_min": 74.0,
+            "tps_max": 76.0,
+            "n_reps": 3
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 140.0,
+          "slope_ms_per_1k": 15.0,
+          "r2": 1.0,
+          "resid_max_pct": 0.0,
+          "n_points": 7
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 166.24,
+            "full_ms_fitted": 155.36,
+            "penalty_pct": 7.0
+          }
+        ],
+        "warmup_ms": 990.0,
+        "shader_bytes": null,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            5000,
+            5000
+          ],
+          "model_load_ms": [
+            900,
+            950
+          ],
+          "context_init_ms": [
+            100,
+            120
+          ],
+          "warmup_ms": [
+            50,
+            60
+          ],
+          "ttft_ms": [
+            700,
+            750
+          ],
+          "decode_tps": [
+            40.0,
+            35.0
+          ],
+          "prefill_tps": null,
+          "completion_ms": [
+            4000,
+            4200
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            1500,
+            1550
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            1300,
+            1350
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            1200,
+            1250
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "The document describes ..."
+        ]
+      },
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    },
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "model": "qwen3-4B",
+      "quant": "q4",
+      "healthy": false,
+      "unhealthy_reason": "brain-check decode mismatch",
+      "vram_method": "unified",
+      "geometry": null,
+      "sweep": {
+        "status": "skipped",
+        "prefill": [],
+        "decode": [],
+        "fit": null,
+        "ubatch": [],
+        "warmup_ms": null,
+        "shader_bytes": null,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "skipped",
+        "task": "summarize-large"
+      },
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    }
+  ]
 }

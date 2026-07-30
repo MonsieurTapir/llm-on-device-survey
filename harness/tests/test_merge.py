@@ -28,7 +28,7 @@ def _cell(model: str, quant: str = "q4", provider: str = "cpu:0", versions: dict
 
 def _raw(cells: list[dict], probes: list[dict] | None = None, **over):
     raw = {
-        "schema_version": "1",
+        "schema_version": "2",
         "backend": "llamacpp",
         "machine": {
             "host": "box",

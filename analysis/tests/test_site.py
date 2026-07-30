@@ -118,6 +118,7 @@ def test_lanes_stay_distinct_across_identical_machines():
         "provider": ["vulkan:0", "vulkan:0"], "machine": ["nuc-a", "nuc-b"],
         "device": ["Intel(R) Graphics (MTL)"] * 2,
         "cpu": ["Intel(R) Core(TM) Ultra 5 125U"] * 2,
+        "threads_batch": [12, 12], "threads_decode": [12, 12],
     })
     lanes = site._with_lanes(df).lane
     assert lanes.nunique() == 2

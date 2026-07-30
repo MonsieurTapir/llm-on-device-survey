@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "backend", "machine", "job_spawns", "probes", "runs"],
   "properties": {
-    "schema_version": { "const": "1" },
+    "schema_version": { "const": "2" },
     "backend": { "enum": ["llamacpp"] },
     "machine": {
       "type": "object",
@@ -31,6 +31,22 @@
     "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } }
   },
   "$defs": {
+    "threads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decode", "batch"],
+      "description": "The intra-op thread counts this lane actually ran, per phase — see events.schema.json $defs.threads. Carried here because a CPU rate is uninterpretable without it and `machine.cpu_cores` does not predict it: what \"all cores\" means is a per-OS decision (linux counts every physical core, macOS only the top performance cluster).",
+      "properties": {
+        "decode": { "type": "integer", "minimum": 1 },
+        "batch": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "nullableThreads": {
+      "oneOf": [
+        { "$ref": "#/$defs/threads" },
+        { "type": "null", "description": "No spawn reported it — nothing ran (errored probe, unhealthy cell)." }
+      ]
+    },
     "stat": {
       "type": "array",
       "description": "[p50, max] — median is the estimate, max flags instability.",
@@ -79,11 +95,12 @@
     "probeResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "device", "status", "gemm", "copy"],
+      "required": ["provider", "device", "status", "threads", "gemm", "copy"],
       "properties": {
         "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*:[0-9]+$", "description": "Device lane: <family>:<index> (see events.schema.json)." },
         "device": { "type": "string" },
         "status": { "enum": ["ok", "errored"] },
+        "threads": { "$ref": "#/$defs/nullableThreads" },
         "gemm": {
           "type": "array",
           "description": "Per-point matmul throughput; the ceiling estimate is the best point.",
@@ -123,12 +140,13 @@
     "run": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "device", "model", "quant", "healthy", "vram_method", "geometry", "sweep", "job"],
+      "required": ["provider", "device", "model", "quant", "healthy", "vram_method", "threads", "geometry", "sweep", "job"],
       "properties": {
         "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*:[0-9]+$", "description": "Device lane: <family>:<index> (see events.schema.json)." },
         "device": { "type": "string" },
         "model": { "type": "string" },
         "quant": { "enum": ["fp16", "q8", "q4", "q2"] },
+        "threads": { "$ref": "#/$defs/nullableThreads" },
         "healthy": { "type": "boolean", "description": "Brain-check passed for this (model, provider)." },
         "unhealthy_reason": { "type": "string", "description": "Present iff healthy=false: which brain-check failed and why; sweep and job were skipped." },
         "vram_method": { "enum": ["nvml", "drm", "unified", "n/a"], "description": "How per-PID VRAM was obtained: NVML, DRM fdinfo's device-local pool, unified memory, or unavailable." },

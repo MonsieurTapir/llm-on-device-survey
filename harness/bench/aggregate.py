@@ -125,6 +125,17 @@ def vram_method(traces: list[Trace], sources: dict, provider: str) -> str:
 # ── probes ────────────────────────────────────────────────────────────────────
 
 
+def _threads(traces: list[Trace]) -> dict | None:
+    """The intra-op thread counts, from the first spawn that reported them. Not
+    re-derivable from the machine block: llama.cpp's "physical cores" default
+    means every physical core on linux but only the top performance cluster on
+    macOS, and either count may be overridden per spawn. None when nothing ran."""
+    for t in traces:
+        if t["events"]:
+            return t["events"]["versions"]["threads"]
+    return None
+
+
 def probe_result(provider: str, trace: Trace) -> dict:
     """One results probe entry from one probe trace. Throughputs derive from the
     declared work: GEMM moves 2·m·n·k FLOPs per repeat; a copy moves its payload
@@ -133,7 +144,7 @@ def probe_result(provider: str, trace: Trace) -> dict:
     ev = trace["events"]
     if not ev:
         return {"provider": provider, "device": "unknown", "status": "errored",
-                "gemm": [], "copy": []}
+                "threads": None, "gemm": [], "copy": []}
     gemm = []
     for g in ev["gemm"]:
         tflops = [2 * g["m"] * g["n"] * g["k"] / s / 1e12 for s in _repeat_seconds(g["repeats"])]
@@ -146,7 +157,7 @@ def probe_result(provider: str, trace: Trace) -> dict:
         copy.append({"kind": c["kind"], "bytes": c["bytes"],
                      "gbs_p50": round(median(gbs), 2), "n_reps": len(gbs)})
     return {"provider": provider, "device": ev["device"], "status": "ok",
-            "gemm": gemm, "copy": copy}
+            "threads": _threads([trace]), "gemm": gemm, "copy": copy}
 
 
 # ── sweeps ────────────────────────────────────────────────────────────────────
@@ -304,6 +315,7 @@ def _run_from_cell(cell: dict, sources: dict) -> dict:
         "quant": cell["quant"],
         "healthy": cell["healthy"],
         "vram_method": method,
+        "threads": _threads(all_traces),
         "geometry": _geometry(sweep_traces + cell["job"]["spawns"]),
         "sweep": sweep_result(cell["sweep"], shader_cache=cell["shader_cache"],
                               shader_bytes=cell["shader_bytes"]),
@@ -319,7 +331,7 @@ def build(raw: dict) -> dict:
     aggregation entrypoint shared by live `run` and `bench aggregate`."""
     sources = sampling_sources(raw)
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "backend": raw["backend"],
         "machine": raw["machine"],
         "job_spawns": raw["job_spawns"],

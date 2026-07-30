@@ -121,7 +121,7 @@ def test_flat_file_labels_by_host_not_gpu(tmp_path):
     """A results file straight under the root (no machine subdir) is labelled by its
     machine `host`, not by slugging the GPU."""
     doc = {
-        "schema_version": "1",
+        "schema_version": "2",
         "backend": "llamacpp",
         "machine": {
             "host": "leaf-desktop", "os": "linux", "cpu": "x",
@@ -138,6 +138,7 @@ def test_flat_file_labels_by_host_not_gpu(tmp_path):
     doc["runs"] = [{
         "provider": "cuda", "device": "cuda:0", "model": "m", "quant": "q4",
         "healthy": False, "unhealthy_reason": "x", "vram_method": "nvml",
+        "threads": None,  # nothing ran, so no width was observed
         "geometry": None,
         "sweep": {"status": "skipped", "prefill": [], "decode": [], "fit": None,
                   "ubatch": [], "warmup_ms": None, "shader_bytes": None,

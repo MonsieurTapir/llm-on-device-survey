@@ -57,9 +57,16 @@ root: `uv run --project harness bench check --backend llamacpp --models models`.
   stacks.
 - Prefill is isolated from the first decode step, so `prefill_tps` and
   `ttft_ms` are both reported.
-- `n_threads` / `n_threads_batch` pinned to physical cores; recorded in
-  `versions`, alongside the llama.cpp commit, compiled backends + toolkit
-  versions, build flags, and `use_mmap`.
+- `n_threads` / `n_threads_batch` default to `common_cpu_get_num_physical_cores()`
+  — every physical core on linux/windows, but only the top performance cluster on
+  macOS (`hw.perflevel0.physicalcpu`), so the same call means different silicon per
+  platform. `--threads` / `--threads-batch` override each pool independently
+  (`0` = that default); the probe's GEMM runs the batch pool, since its shapes are
+  batched work. Both resolved counts are recorded in `versions.threads`, alongside
+  the llama.cpp commit, compiled backends + toolkit versions, build flags, and
+  `use_mmap`. Thread affinity is *not* set — and on Apple it cannot be
+  (`ggml_thread_apply_affinity` is a no-op there), so a count is a request for N
+  threads, not a choice of which cores run them.
 - The binary is ad-hoc signed on macOS (`entitlements.plist`,
   `com.apple.security.get-task-allow`) so `task_for_pid` stays available to
   the sampler.

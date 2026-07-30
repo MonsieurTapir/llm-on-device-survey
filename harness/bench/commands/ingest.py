@@ -140,11 +140,12 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         if not filename.endswith("-results.json"):
             continue
         version = doc.get("schema_version")
-        if version != "1":
+        expected = schema.results_version()
+        if version != expected:
             raise SystemExit(
-                f"{name}/{filename}: results schema_version={version!r}, expected '1' — "
-                "the submission was built from a different release; ask for a re-run "
-                "with the current one"
+                f"{name}/{filename}: results schema_version={version!r}, "
+                f"expected {expected!r} — the submission was built from a different "
+                "release; ask for a re-run with the current one"
             )
         schema.validate_results(doc, label=f"{name}/{filename}")
 

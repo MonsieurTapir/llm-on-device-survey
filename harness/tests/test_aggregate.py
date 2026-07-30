@@ -51,12 +51,12 @@ def _geometry() -> dict:
 
 def _base(mode: str) -> dict:
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "backend": "llamacpp",
         "mode": mode,
         "provider": "cuda:0",
         "device": "cuda:0",
-        "versions": {"threads": 8},
+        "versions": {"threads": {"decode": 8, "batch": 8}},
         "anchor": {"wall_unix_ns": W0, "mono_ns": 0},
     }
 
@@ -187,7 +187,7 @@ def _trace(events: dict | None = None) -> dict:
 
 def _raw(cells: list[dict], probes: list[dict] | None = None) -> dict:
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "backend": "llamacpp",
         "machine": {
             "host": "test-box",
@@ -230,7 +230,7 @@ def _healthy_cell() -> dict:
 def test_build_is_schema_valid():
     results = aggregate.build(_raw([_healthy_cell()]))
     schema.validate_results(results)  # raises if not valid
-    assert results["schema_version"] == "1"
+    assert results["schema_version"] == "2"
     assert results["machine"]["memory"]["configured_mts"] == 4800
 
 

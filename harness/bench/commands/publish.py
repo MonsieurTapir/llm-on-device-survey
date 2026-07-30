@@ -57,18 +57,30 @@ def _machine_lines(m: dict) -> list[str]:
     ]
 
 
+def _threads_cell(threads: dict | None) -> str:
+    """The intra-op width, `decode/batch` (collapsed when equal). The machine's core
+    count doesn't predict it — llama.cpp's default is every physical core on
+    linux/windows but only the top performance cluster on macOS — so a reviewer
+    comparing two CPU lanes needs it stated."""
+    if not threads:
+        return "—"
+    decode, batch = threads["decode"], threads["batch"]
+    return f"{decode}" if decode == batch else f"{decode}/{batch}"
+
+
 def _probe_rows(doc: dict) -> list[str]:
     """One row per probed provider: the ceiling numbers a reviewer sanity-checks
     against the spec sheet."""
     rows = []
     for p in doc.get("probes") or []:
+        threads = _threads_cell(p.get("threads"))
         if p["status"] != "ok":
-            rows.append(f"| {p['provider']} | {p['device']} | — | — | {p['status']} |")
+            rows.append(f"| {p['provider']} | {p['device']} | {threads} | — | — | {p['status']} |")
             continue
         gemm = max((g["tflops_p50"] for g in p["gemm"]), default=None)
         d2d = next((c["gbs_p50"] for c in p["copy"] if c["kind"] == "d2d"), None)
         rows.append(
-            f"| {p['provider']} | {p['device']} "
+            f"| {p['provider']} | {p['device']} | {threads} "
             f"| {gemm if gemm is not None else '—'} | {d2d if d2d is not None else '—'} | ok |"
         )
     return rows
@@ -85,7 +97,8 @@ def _coverage(doc: dict) -> list[list[str]]:
             job = run["job"]["status"]
         pts = len(run["sweep"]["prefill"]) + len(run["sweep"]["decode"])
         sweep_cell = f"{sweep} ({pts} pts)" if pts else sweep
-        rows.append([run["model"], run["quant"], run["provider"], sweep_cell, job])
+        rows.append([run["model"], run["quant"], run["provider"],
+                     _threads_cell(run.get("threads")), sweep_cell, job])
     rows.sort()
     return rows
 
@@ -110,11 +123,11 @@ def _render_readme(name: str, docs: list[tuple[Path, dict]]) -> str:
     for _path, doc in sorted(docs, key=lambda d: d[1]["backend"]):
         out += ["", f"## {doc['backend']}  ({len(doc['runs'])} runs)", ""]
         if doc.get("probes"):
-            out += ["| provider | device | gemm TFLOP/s | d2d GB/s | probe |",
-                    "|---|---|---|---|---|"]
+            out += ["| provider | device | threads | gemm TFLOP/s | d2d GB/s | probe |",
+                    "|---|---|---|---|---|---|"]
             out += _probe_rows(doc)
             out.append("")
-        header = ["model", "quant", "provider", "sweep", "job"]
+        header = ["model", "quant", "provider", "threads", "sweep", "job"]
         out.append("| " + " | ".join(header) + " |")
         out.append("|" + "|".join(["---"] * len(header)) + "|")
         for r in _coverage(doc):

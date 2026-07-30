@@ -21,8 +21,9 @@ argv = sys.argv[1:]
 out_dir = {out_dir!r}
 (open(out_dir + "/argv.json", "w")).write(json.dumps(argv))
 mode = argv[0]
-base = {{"schema_version": "1", "backend": "llamacpp", "provider": "cpu:0", "device": "fake",
-        "versions": {{"threads": 1}}, "anchor": {{"wall_unix_ns": 1, "mono_ns": 1}}}}
+base = {{"schema_version": "2", "backend": "llamacpp", "provider": "cpu:0", "device": "fake",
+        "versions": {{"threads": {{"decode": 1, "batch": 1}}}},
+        "anchor": {{"wall_unix_ns": 1, "mono_ns": 1}}}}
 span = {{"start_ns": 0, "end_ns": 100}}
 geom = {{"n_layer": 1, "n_embd": 8, "n_head": 1, "n_head_kv": 1, "n_swa": 0,
         "shared_kv_layers": 0, "n_ctx_train": 512, "n_params": 10, "file_bytes": 10,

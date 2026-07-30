@@ -30,6 +30,15 @@ def _validator(filename: str) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+@cache
+def results_version() -> str:
+    """The `schema_version` results.schema.json accepts — read from the schema so the
+    version lives in exactly one place. Callers that must reject a mismatch with a
+    kinder message than a validation dump (see `bench ingest`) ask here."""
+    schema = json.loads((SCHEMA_DIR / "results.schema.json").read_text())
+    return schema["properties"]["schema_version"]["const"]
+
+
 def _check(obj: object, filename: str, label: str) -> None:
     validator = _validator(filename)
     errors = sorted(validator.iter_errors(obj), key=lambda e: list(e.absolute_path))

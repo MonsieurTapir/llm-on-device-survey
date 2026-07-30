@@ -118,10 +118,23 @@ memory model; sweep and probe spawns run unsampled. A single
 wall-clock anchor captured at startup maps events onto the memory timeline.
 
 **Equal work, deterministically.** Greedy/argmax decode, exactly `nb_tokens`
-per turn, EOS ignored — every config does the same token count. The exe pins
-intra-op threads to physical cores. Thinking is disabled
-(`enable_thinking=false` through the model's own jinja chat template), so a
-reasoning model doesn't burn its decode budget inside `<think>…</think>`.
+per turn, EOS ignored — every config does the same token count. Thinking is
+disabled (`enable_thinking=false` through the model's own jinja chat template),
+so a reasoning model doesn't burn its decode budget inside `<think>…</think>`.
+
+**Equal work is not equal width.** Intra-op threads are the runtime's own
+default, which is *not* one rule across platforms: llama.cpp counts every
+physical core on linux and windows, but on macOS only the top performance
+cluster (`hw.perflevel0.physicalcpu`) — so an 18-core M-series part runs 6
+threads while an 8-core linux part runs 8, and the efficiency cores that count
+for one platform are excluded on the other. That default is deliberate (ggml
+splits each op's rows evenly and barriers on the slowest thread, so a slow core
+handed an equal share sets the pace), and it is what every shipped llama.cpp
+app does, so it is what we measure. But it makes CPU lanes peers in appearance
+only. Both counts therefore travel with the numbers — per phase, since batched
+prefill and single-token decode have separate pools — and the report prints the
+width on every CPU lane. `--threads` / `--threads-batch` override them for a
+deliberate A/B; published runs are always the default.
 
 **One canonical loop.** The exe drives its library's
 low-level primitives (not `generate()`), isolating prefill from the first

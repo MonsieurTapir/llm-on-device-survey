@@ -162,6 +162,21 @@ def _lane_chip(device: str, cpu: str, family: str) -> str:
     return f"{_chip(cpu)} iGPU"
 
 
+def _width(family: str, batch, decode) -> str:
+    """The intra-op width a CPU lane ran, as a label suffix (' 6t', or ' 6t/18t'
+    when the phases differ). CPU rates are per-thread-count results and the count
+    is not implied by the chip — llama.cpp asks for every physical core on linux
+    but only the top performance cluster on macOS, so an 18-core M-series lane
+    runs 6 threads next to an 8-core linux lane running 8. Unlabelled, the two
+    read as peers. Empty for GPU lanes, where the pool only serves leftover ops."""
+    if family != "cpu":
+        return ""
+    batch, decode = (int(t) if t == t and t else None for t in (batch, decode))
+    if batch is None or decode is None:
+        return ""
+    return f" {decode}t" if batch == decode else f" {decode}t/{batch}t"
+
+
 def _dev_class(device: str, cpu: str, family: str) -> str:
     if family == "cpu":
         return "CPU"
@@ -173,15 +188,17 @@ def _family(provider: str) -> str:
 
 
 def _with_lanes(df: pd.DataFrame) -> pd.DataFrame:
-    """Add `family`, `dev_class` and the display `lane` ('RTX 5080 · vulkan'). A
-    label two machines (or two lanes of one machine) would share is qualified until
-    it is unique — rows are never silently pooled."""
+    """Add `family`, `dev_class` and the display `lane` ('RTX 5080 · vulkan', a CPU
+    lane carrying its thread width: 'Apple M5 Pro · cpu 6t'). A label two machines
+    (or two lanes of one machine) would share is qualified until it is unique —
+    rows are never silently pooled."""
     df = df.copy()
     df["family"] = [_family(p) for p in df.provider]
     df["dev_class"] = [_dev_class(d, c, f)
                        for d, c, f in zip(df.device, df.cpu, df.family, strict=True)]
-    df["lane"] = [f"{_lane_chip(d, c, f)} · {f}"
-                  for d, c, f in zip(df.device, df.cpu, df.family, strict=True)]
+    df["lane"] = [f"{_lane_chip(d, c, f)} · {f}{_width(f, b, k)}"
+                  for d, c, f, b, k in zip(df.device, df.cpu, df.family,
+                                           df.threads_batch, df.threads_decode, strict=True)]
     for qualifier in ("machine", "provider"):
         shared = df.groupby("lane")[qualifier].transform("nunique") > 1
         df.loc[shared, "lane"] = [f"{lane} ({q})" for lane, q

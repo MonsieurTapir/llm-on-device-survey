@@ -21,7 +21,11 @@ Three frames, one per kind of measurement:
 - `load_results` — the validation job: one row per (machine, backend, model,
   quant, provider). Every `[p50, max]` stat explodes into `<name>_p50` /
   `<name>_max` (a null stat — e.g. VRAM on a CPU EP — explodes to NaN/NaN,
-  never 0). Geometry scalars ride along (`geo_*`), as do the sweep's derived
+  never 0). `threads_batch` / `threads_decode` carry the intra-op width each
+  phase actually ran — read them before comparing CPU lanes across machines,
+  because llama.cpp's default is per-OS ("every physical core" on linux, "the
+  top performance cluster" on macOS) and `cpu_cores` does not predict it.
+  Geometry scalars ride along (`geo_*`), as do the sweep's derived
   parameters: `fit_*` (the prefill cost function and its fit quality),
   `ubatch_penalty_pct_max` (dispatch-width sensitivity), and `shader_*`
   (first-launch pipeline compilation — compare across machines only where
@@ -41,11 +45,14 @@ Three frames, one per kind of measurement:
 - `load_sweeps` — one row per sweep point: `kind` ("prefill" | "decode").
   Prefill rows are the instrumented pass's chunks (`chunk_ms` marginal,
   `ttft_ms` cumulative at depth `tokens`); decode rows the tps spread per
-  `kv_fill`. Points survive a non-ok sweep status — partial data still
-  informs.
+  `kv_fill`. Both phases carry their `threads_*` width. Points survive a non-ok
+  sweep status — partial data still informs.
 
 - `load_probes` — one row per ceiling point: `kind` ("gemm" | "h2d" | "d2h" |
-  "d2d") with the measured `tflops` or `gbs`.
+  "d2d") with the measured `tflops` or `gbs`, plus the `threads_*` the lane
+  probed at. A CPU gemm ceiling is a property of that width, and on Apple it is
+  reached through Accelerate rather than the quantized kernels inference uses —
+  so it bounds f16 matmul, not q4 prefill.
 
 A missing number is *visible*, not silently absent.
 """
@@ -61,7 +68,7 @@ import pandas as pd
 # The results schema this loader understands; in lockstep with
 # results.schema.json's `schema_version`. An unknown version is a loud error,
 # not a silently-misaligned frame.
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 # Scalar fields copied straight off each run.
 _RUN_KEYS = ("provider", "device", "model", "quant", "healthy", "vram_method")
@@ -125,6 +132,16 @@ def _explode(stats: dict, into: dict) -> None:
         into[f"{name}_max"] = mx
 
 
+def _threads(into: dict, threads: dict | None) -> None:
+    """The per-phase intra-op thread counts as `threads_batch` / `threads_decode`.
+    A CPU rate is uninterpretable without them, and they are *not* implied by
+    `cpu_cores`: llama.cpp's default counts every physical core on linux but only
+    the top performance cluster on macOS, so peer-looking CPU lanes routinely ran
+    different widths. NaN when nothing ran."""
+    for phase in ("batch", "decode"):
+        into[f"threads_{phase}"] = (threads or {}).get(phase)
+
+
 def load_results(root: str | Path = "results") -> pd.DataFrame:
     """The validation-job frame: one row per (machine, backend, model, quant,
     provider). Raises ValueError on a schema_version mismatch; empty DataFrame
@@ -134,6 +151,7 @@ def load_results(root: str | Path = "results") -> pd.DataFrame:
         for run in doc["runs"]:
             row = {**base, **{k: run[k] for k in _RUN_KEYS}}
             row["unhealthy_reason"] = run.get("unhealthy_reason")
+            _threads(row, run["threads"])
             for key in _GEO_KEYS:
                 row[f"geo_{key}"] = (run.get("geometry") or {}).get(key)
             for key in _GEO_TENSOR_KEYS:
@@ -183,6 +201,7 @@ def load_sweeps(root: str | Path = "results") -> pd.DataFrame:
         for run in doc["runs"]:
             run_base = {**base, **{k: run[k] for k in _RUN_KEYS},
                         "sweep_status": run["sweep"]["status"]}
+            _threads(run_base, run["threads"])
             cum = 0.0
             for p in run["sweep"]["prefill"]:
                 cum += p["ms"]
@@ -219,6 +238,7 @@ def load_probes(root: str | Path = "results") -> pd.DataFrame:
         for probe in doc.get("probes") or []:
             probe_base = {**base, "provider": probe["provider"], "device": probe["device"],
                           "status": probe["status"]}
+            _threads(probe_base, probe["threads"])
             for g in probe["gemm"]:
                 rows.append({**probe_base, "kind": "gemm", "m": g["m"], "n": g["n"],
                              "k": g["k"], "dtype": g["dtype"], "tflops": g["tflops_p50"],
