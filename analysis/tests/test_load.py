@@ -145,22 +145,13 @@ def test_thread_ladder_loads_one_row_per_phase_and_width():
     assert set(thr.threads_batch) == {8} and set(thr.threads_decode) == {8}
 
 
-def test_thread_fits_ride_along_with_the_width_they_size():
-    """The results frame carries the two fits as parameters, plus the one derived
-    number a power-management caller acts on: the width that reaches 90% of peak
-    decode, which is the saturating fit inverted at a tenth."""
+def test_the_ladders_fits_stay_out_of_the_results_frame():
+    """The harness still fits the ladder, and the frame no longer carries it. Both
+    fits are asymptotes — the part of a chunk no width removes, the rate an unbounded
+    width would reach — and the ladder stops at the widest width the lane runs, which
+    is precisely where an asymptote has no evidence. The points are what loads."""
     df = load_results(FIXTURES)
-    cpu = df[(df.machine == "m1-max") & (df.provider == "cpu:0")].iloc[0]
-    assert cpu["thr_prefill_floor_ms"] == 41.95  # what no width removes
-    assert cpu["thr_prefill_scaled_ms"] == 1353.886  # what threads divide
-    assert cpu["thr_prefill_floor_pct"] == 3.01  # so prefill keeps paying for cores
-    assert cpu["thr_decode_rate_max_tps"] == 22.439
-    assert cpu["thr_decode_threads_p90"] == round(cpu["thr_decode_threads_scale"] * math.log(10), 2)
-    assert cpu["thr_decode_threads_p90"] < cpu["threads_decode"]  # saturates early
-
-    mtl = df[(df.machine == "m1-max") & (df.provider == "mtl")].iloc[0]
-    assert math.isnan(mtl["thr_prefill_floor_ms"])  # absent, not zero
-    assert math.isnan(mtl["thr_decode_threads_p90"])
+    assert not [c for c in df.columns if c.startswith("thr_")]
 
 
 def test_probes_load_with_throughputs():

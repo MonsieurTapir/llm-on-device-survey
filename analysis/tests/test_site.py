@@ -1096,19 +1096,16 @@ def test_a_shelf_with_no_allocator_ladder_still_builds(tmp_path):
 
 
 def _fixture_threads():
-    """The fixture shelf's thread ladder, as the page assembles it: the fits, the
-    measured points, and how far each (lane, model, phase) was measured."""
-    df = site._with_lanes(load_results(FIXTURES))
-    fits = site._thread_fits(df)
-    points = site._thread_rows(site._with_lanes(load_thread_scaling(FIXTURES)), fits)
-    return fits, points, site._thread_spans(points)
+    """The fixture shelf's thread ladder, as the page assembles it: the measured
+    points and the step between each adjacent pair of widths."""
+    points = site._thread_rows(site._with_lanes(load_thread_scaling(FIXTURES)))
+    return points, site._thread_steps(points)
 
 
 def test_thread_points_carry_each_phase_in_its_own_unit():
-    """A prefill point is the chunk's milliseconds, a decode point the burst's tok/s —
-    the units the two fits were taken in, so both fitted parameters can be drawn as
-    asymptotes. The ring marks the width the lane actually runs."""
-    _, points, spans = _fixture_threads()
+    """A prefill point is the chunk's milliseconds, a decode point the burst's tok/s.
+    The ring marks the width the lane actually runs."""
+    points, _ = _fixture_threads()
     lane = "Apple M1 Max · cpu 8t"
     assert {r["lane"] for r in points} == {lane}  # CPU lanes only
 
@@ -1118,118 +1115,79 @@ def test_thread_points_carry_each_phase_in_its_own_unit():
     assert [pre[n]["at_width"] for n in (8, 4, 2)] == [True, False, False]
     assert pre[8]["tokens"] == 128
     assert all(r["kv_fill"] is None for r in pre.values())  # None, never NaN
-    assert {r["n_widths"] for r in pre.values()} == {3}
-    assert pre[8]["r2"] == 0.99996  # the fit the dots belong to, in the tooltip
 
     dec = {r["threads"]: r for r in points if r["phase"] == "decode"}
     assert [dec[n]["value"] for n in (8, 4, 2)] == [22.1, 20.4, 15.2]
     assert {r["kv_fill"] for r in dec.values()} == {2048}
     assert dec[8]["tokens"] == 16
-
-    assert spans[(lane, "gemma4-E2B", "prefill")] == {
-        "widest": 8,
-        "n": 3,
-        "tokens": 128,
-        "kv_fill": None,
-    }
     json.dumps(points, allow_nan=False)  # strict — the island is
 
 
-def test_the_fit_is_drawn_over_its_evidence_and_no_further():
-    """The ladder walks down from the lane's own width, so the curve stops there: past
-    it nothing was measured. Both fitted parameters draw as asymptotes, and the
-    90%-of-peak width draws as a rule because it falls inside the measured widths."""
-    fits, points, spans = _fixture_threads()
-    rows = site._thread_fit_rows(fits, spans)
-    lane, model = "Apple M1 Max · cpu 8t", "gemma4-E2B"
+def test_a_step_says_what_the_widths_it_joins_actually_bought():
+    """The section's only derived number, and it divides two measurements. Prefill is
+    a duration so its speedup inverts; decode is a rate. Both are read against a
+    perfect division of the work, which is the thing a reader is deciding against —
+    and nothing is claimed for a width the ladder never ran."""
+    _, steps = _fixture_threads()
+    labels = {(r["phase"], r["threads"]): r["label"] for r in steps}
+    # 719.5 → 378.6 ms is 1.90x for 2x the threads; 378.6 → 212.4 is 1.78x
+    assert labels[("prefill", 3.0)] == "2→4 threads: 95% of ideal"
+    assert labels[("prefill", 6.0)] == "4→8 threads: 89% of ideal"
+    # decode saturates far harder: 20.4 → 22.1 tok/s is 1.08x for twice the width
+    assert labels[("decode", 3.0)] == "2→4 threads: 67% of ideal"
+    assert labels[("decode", 6.0)] == "4→8 threads: 54% of ideal"
 
-    for phase in ("prefill", "decode"):
-        curve = [r for r in rows if r["kind"] == "fit" and r["phase"] == phase]
-        assert len(curve) == site.THREAD_FIT_SAMPLES + 1
-        threads = [r["threads"] for r in curve]
-        assert threads == sorted(threads)
-        assert min(threads) == 1 and max(threads) == spans[(lane, model, phase)]["widest"]
-
-    floor = [r for r in rows if r["kind"] == "asymptote" and r["phase"] == "prefill"]
-    assert [r["value"] for r in floor] == [41.95]  # positive, so it is a floor
-    assert "floor" in floor[0]["label"]
-    ceiling = [r for r in rows if r["kind"] == "asymptote" and r["phase"] == "decode"]
-    assert [r["value"] for r in ceiling] == [22.44]
-    assert ceiling[0]["threads"] is None  # a horizontal rule has no width of its own
-
-    p90 = [r for r in rows if r["kind"] == "p90"]
-    assert len(p90) == 1 and p90[0]["phase"] == "decode"
-    assert p90[0]["in_domain"] is True
-    assert p90[0]["threads"] == fits[(lane, model)]["decode"]["p90"] == 4.01
-    assert p90[0]["label"] == "90% of peak at 4.01 threads"
-    json.dumps(rows + points, allow_nan=False)
+    # A step is drawn at the middle of the segment it describes, so it reads along
+    # the curve rather than at an axis.
+    mid = next(r for r in steps if r["phase"] == "prefill" and r["threads"] == 6.0)
+    assert mid["value"] == round((378.6 + 212.4) / 2, 2)
+    assert mid["kind"] == "step" and mid["at_width"] is False
+    json.dumps(steps, allow_nan=False)
 
 
-def test_a_short_fit_claims_neither_a_floor_nor_a_width_it_never_reached():
-    """Two widths fit two parameters with one residual left over. A floor that comes
-    out negative is not a floor and draws no line; a 90%-of-peak width above every
-    width measured draws no rule either — it would stretch the axis to reach itself —
-    so it becomes a note, and the table says both out loud."""
-    lane, model = "Ryzen 5 PRO 230 · cpu 4t", "Ministral3-3B"
-    fits = {
-        (lane, model): {
-            "lane": lane,
-            "dev_class": "CPU",
-            "machine": "mini",
-            "model": model,
-            "quant": "q4",
-            "backend": "llamacpp",
-            "prefill": {
-                "floor_ms": -12.0,
-                "scaled_ms": 900.0,
-                "floor_pct": -1.35,
-                "r2": 0.9,
-                "width": 4,
-            },
-            "decode": {
-                "rate_max_tps": 30.0,
-                "threads_scale": 6.0,
-                "p90": 13.82,
-                "r2": 0.95,
-                "width": 4,
-            },
-        }
+def test_one_measured_width_is_no_step_at_all():
+    """A ladder the budget cut to a single width has nothing to compare, and a step
+    between a width and itself would be a division by an ideal of one."""
+    point = {
+        "lane": "Ryzen 5 PRO 230 · cpu 4t",
+        "dev_class": "CPU",
+        "machine": "mini",
+        "model": "Ministral3-3B",
+        "quant": "q4",
+        "backend": "llamacpp",
+        "phase": "prefill",
+        "kind": "point",
+        "threads": 4,
+        "value": 900.0,
+        "tokens": 128,
+        "kv_fill": None,
+        "at_width": True,
+        "label": None,
     }
-    spans = {
-        (lane, model, "prefill"): {"widest": 4, "n": 2, "tokens": 128, "kv_fill": None},
-        (lane, model, "decode"): {"widest": 4, "n": 2, "tokens": 16, "kv_fill": 2048},
-    }
-    rows = site._thread_fit_rows(fits, spans)
-    assert not [r for r in rows if r["kind"] == "asymptote" and r["phase"] == "prefill"]
-    p90 = next(r for r in rows if r["kind"] == "p90")
-    assert p90["in_domain"] is False and p90["threads"] is None
-    assert p90["label"] == "90% of peak above 4 threads"
-
-    scalar = site._thread_scalar_rows(fits, spans)[0]
-    assert scalar["floor"] == "no measurable floor"
-    assert scalar["p90"] == "13.82 threads (above the 4 measured)"
-    assert scalar["note"] == "two widths only"
+    assert site._thread_steps([point]) == []
 
 
 def test_thread_scalars_headline_the_widths_the_charts_show():
-    fits, _, spans = _fixture_threads()
-    rows = site._thread_scalar_rows(fits, spans)
+    """The table is the ladder itself — which widths ran, and what the top step
+    bought. No ceiling column and no 90%-of-peak column: both were asymptotes fitted
+    from a ladder that stops at the lane's own widest width."""
+    points, steps = _fixture_threads()
+    rows = site._thread_scalar_rows(points, steps)
     assert len(rows) == 1
     row = rows[0]
     assert row["lane"] == "Apple M1 Max · cpu 8t" and row["model"] == "gemma4-E2B"
     assert row["width"] == "8"  # both phases run the same width
-    assert row["p90"] == "4.01 threads"  # half the width buys 90% of decode
-    assert row["ceiling"] == "22.4 tok/s"
-    assert row["floor"] == "3.01%"  # prefill keeps rewarding cores
-    assert row["r2"] == "1.0000 / 0.9971"
+    assert row["measured"] == "2, 4, 8"  # and the ladder covered these
+    assert row["prefill_step"] == "4→8 threads: 89% of ideal"
+    assert row["decode_step"] == "4→8 threads: 54% of ideal"
     assert row["note"] == "—"  # three widths: nothing to caveat
+    assert "p90" not in row and "ceiling" not in row and "floor" not in row
 
 
-def test_thread_islands_draw_the_dots_the_fit_and_its_limits(tmp_path):
-    """One island per phase, each in its own unit: the measured widths as dots with the
-    operating width ringed, the harness's fit as the line through them, and the fitted
-    limit as a dashed line. The decode island also marks where the fit reaches 90% of
-    its ceiling."""
+def test_thread_islands_draw_the_dots_and_the_line_between_them(tmp_path):
+    """One island per phase, each in its own unit: the measured widths as dots with
+    the operating width ringed, joined by a line that is interpolation and not a fit.
+    Nothing is drawn past the widest width run, and no asymptote is drawn at all."""
     h = _build(tmp_path)
     assert "Thread width" in h
     units = {"prefill": "ms per 128-token chunk", "decode": "tok/s of a 16-token burst"}
@@ -1241,88 +1199,75 @@ def test_thread_islands_draw_the_dots_the_fit_and_its_limits(tmp_path):
         # the caveat rides the chart: these work units compare across widths only
         assert "compare widths" in spec["title"]["subtitle"]
         kinds = [layer["transform"][0]["filter"] for layer in spec["layer"]]
-        assert "datum.kind === 'fit'" in kinds
         assert "datum.kind === 'point'" in kinds
         assert "datum.kind === 'point' && datum.at_width" in kinds
-        assert "datum.kind === 'asymptote'" in kinds
+        assert "datum.kind === 'step'" in kinds
+        # The projections are gone: no fitted curve, no asymptote, no 90% rule.
+        assert not [k for k in kinds if "fit" in k or "asymptote" in k or "p90" in k]
 
-        # Two layers filter to the fit — the drawn line and the invisible hover
-        # surface over the same path — so key on the ones that put ink down.
-        by_kind = {
-            layer["transform"][0]["filter"]: layer
+        # Three layers filter to the points — the joining line, the invisible hover
+        # surface over the same path, and the dots — so key on marks, not filters.
+        line = next(
+            layer
             for layer in spec["layer"]
-            if layer["mark"].get("opacity") != 0
-        }
-        fit = by_kind["datum.kind === 'fit'"]
-        assert fit["mark"] == {"type": "line", "strokeWidth": 2}
-        assert fit["encoding"]["x"]["field"] == "threads"
-        assert fit["encoding"]["x"]["axis"]["tickMinStep"] == 1
-        # one thread is the fit's own baseline; zero threads is not a width
-        assert fit["encoding"]["x"]["scale"] == {"zero": False, "nice": False}
-        assert fit["encoding"]["y"]["title"] == y_title
-        assert fit["encoding"]["y"]["scale"] == {"zero": True}
-        dot = by_kind["datum.kind === 'point'"]
-        assert dot["mark"]["filled"] is True and dot["mark"]["size"] == 55
-        ring = by_kind["datum.kind === 'point' && datum.at_width"]
-        assert ring["mark"]["filled"] is False and ring["mark"]["size"] == 110
-        asymptote = by_kind["datum.kind === 'asymptote'"]
-        assert asymptote["mark"]["strokeDash"] == [4, 3]
-        assert "x" not in asymptote["encoding"]  # a limit spans the whole width
-        # A dot hands over its own measurement and the fit through it; the dashed
-        # lines hand over what they are, because a fitted parameter is not a width the
-        # ladder ever ran. The work unit is in the y-axis title and the widths are the
-        # dots, so neither is repeated on hover.
+            if layer["mark"]["type"] == "line" and layer["mark"].get("opacity") != 0
+        )
+        assert line["mark"] == {"type": "line", "strokeWidth": 2}
+        assert line["encoding"]["x"]["field"] == "threads"
+        assert line["encoding"]["x"]["axis"]["tickMinStep"] == 1
+        # one thread is the ladder's own baseline; zero threads is not a width
+        assert line["encoding"]["x"]["scale"] == {"zero": False, "nice": False}
+        assert line["encoding"]["y"]["title"] == y_title
+        assert line["encoding"]["y"]["scale"] == {"zero": True}
+        dot = next(
+            layer
+            for layer in spec["layer"]
+            if layer["mark"]["type"] == "point" and layer["mark"]["filled"]
+        )
+        assert dot["mark"]["size"] == 55
+        ring = next(
+            layer
+            for layer in spec["layer"]
+            if layer["mark"]["type"] == "point" and not layer["mark"]["filled"]
+        )
+        assert ring["mark"]["size"] == 110
+        # A dot hands over its own measurement and nothing else: the work unit is in
+        # the y-axis title, the widths are the dots, and no fit quality survives.
         titles = [t.get("title", t["field"]) for t in dot["encoding"]["tooltip"]]
         assert titles[:2] == ["intra-op threads", titled[phase]["value_title"]]
-        assert "fit r²" in titles
+        assert "fit r\u00b2" not in titles
         assert "work unit (tokens)" not in titles and "line" not in titles
         assert ("primed fill (tokens)" in titles) is (phase == "decode")
-        assert [t["field"] for t in asymptote["encoding"]["tooltip"]] == ["label", "value"]
 
     decode = _island(h, "thread-decode")
-    # The fitted parameters are asked for, not always drawn: every annotation layer
-    # filters on a hover selection, declared by a fat invisible copy of the fit line
-    # that gives the pointer something to land on. Filtered rather than dimmed, so an
-    # unhovered lane leaves no rule spanning the plot to catch a tooltip.
+    # The steps are asked for, not always drawn: the label layer filters on a hover
+    # selection, declared by a fat invisible copy of the line so the pointer has
+    # something to land on. Filtered rather than dimmed, so an unhovered lane leaves
+    # no stray text in the plot.
     (surface,) = [layer for layer in decode["layer"] if layer["mark"].get("opacity") == 0]
     assert surface["mark"]["strokeWidth"] > 8  # a 2px path is not a hover target
     (hover_param,) = surface["params"]
     assert hover_param["select"]["on"] == "pointerover"
     assert hover_param["select"]["fields"] == ["lane"]
-    # Never cleared: crossing a dot must not drop the annotations, and the tooltip
-    # the dot then shows belongs to the same lane anyway.
+    # Never cleared: crossing a dot must not drop the labels, and the tooltip the dot
+    # then shows belongs to the same lane anyway.
     assert hover_param["select"]["clear"] is False
     # The surface sits below the dots, whose tooltips have to win the pointer.
-    kinds_in_order = [layer["transform"][0]["filter"] for layer in decode["layer"]]
-    assert kinds_in_order.index("datum.kind === 'fit'") < kinds_in_order.index(
-        "datum.kind === 'point'"
-    )
-    gate = {"filter": {"param": hover_param["name"], "empty": False}}
-    annotated = [
-        layer
-        for layer in decode["layer"]
-        if "p90" in layer["transform"][0]["filter"]
-        or layer["transform"][0]["filter"] == "datum.kind === 'asymptote'"
-    ]
-    assert len(annotated) == 4  # ceiling rule, 90% rule, its label, the out-of-domain note
-    for layer in annotated:
-        assert layer["transform"][1] == gate
+    marks = [(layer["mark"]["type"], layer["mark"].get("opacity")) for layer in decode["layer"]]
+    assert marks.index(("line", 0)) < marks.index(("point", None))
 
-    p90 = [
-        layer
-        for layer in decode["layer"]
-        if "datum.kind === 'p90'" in layer["transform"][0]["filter"]
+    (steps,) = [
+        layer for layer in decode["layer"] if layer["transform"][0]["filter"].endswith("'step'")
     ]
-    rule, label, note = p90
-    assert rule["mark"]["type"] == "rule" and rule["mark"]["strokeDash"] == [2, 3]
-    assert rule["encoding"]["x"]["field"] == "threads"
-    assert label["mark"]["type"] == "text" and label["encoding"]["text"]["field"] == "label"
-    # the out-of-domain case says so in text instead of drawing a rule off the axis
-    assert note["transform"][0]["filter"].endswith("!datum.in_domain")
-    assert note["encoding"]["x"] == {"datum": 1, "type": "quantitative"}
+    assert steps["mark"]["type"] == "text"
+    assert steps["encoding"]["text"]["field"] == "label"
+    assert steps["transform"][1] == {"filter": {"param": hover_param["name"], "empty": False}}
+    # the label rides the segment it describes, on both axes
+    assert steps["encoding"]["x"]["field"] == "threads"
+    assert steps["encoding"]["y"]["field"] == "value"
 
-    # the table under the charts carries the derived numbers, in the page's own ink
-    for cell in ("Apple M1 Max · cpu 8t", "4.01 threads", "22.4 tok/s", "3.01%"):
+    # the table under the charts carries the measured ladder, in the page's own ink
+    for cell in ("Apple M1 Max \u00b7 cpu 8t", "2, 4, 8", "4\u21928 threads: 89% of ideal"):
         assert cell in h
 
 

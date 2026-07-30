@@ -50,9 +50,9 @@ Three frames, one per kind of measurement:
 
 - `load_thread_scaling` — one row per thread-ladder point: `phase`
   ("prefill" | "decode") × `threads` → `tps`. How each phase pays for intra-op
-  width on a CPU lane. The two disagree sharply — prefill keeps taking cores,
-  decode saturates early — which is what sizes a reduced-power operating mode;
-  `load_results` carries the fitted summary (`thr_*`).
+  width on a CPU lane. The points are all of it: the ladder stops at the widest
+  width the lane runs, so the harness's fitted asymptotes are not carried here —
+  an asymptote is least constrained exactly where this measurement ends.
 
 - `load_probes` — one row per ceiling point: `kind` ("gemm" | "h2d" | "d2h" |
   "d2d") with the measured `tflops` or `gbs`, plus the `threads_*` the lane
@@ -66,7 +66,6 @@ A missing number is *visible*, not silently absent.
 from __future__ import annotations
 
 import json
-import math
 import re
 from pathlib import Path
 
@@ -149,33 +148,6 @@ def _threads(into: dict, threads: dict | None) -> None:
         into[f"threads_{phase}"] = (threads or {}).get(phase)
 
 
-def _thread_scaling(into: dict, scaling: dict | None) -> None:
-    """The thread ladder's two fits as columns, plus the one derived number a
-    caller actually acts on.
-
-    `thr_prefill_floor_pct` is how much of a single thread's chunk time no width
-    removes — small means prefill keeps paying for cores. `thr_decode_threads_p90`
-    inverts the saturating fit to the width that reaches 90% of peak decode:
-    `-threads_scale · ln(0.1)`. Together they size a reduced-power mode, and they
-    pull in opposite directions, which is why the phases have separate pools.
-
-    All NaN on a lane with no ladder (GPU lanes, unhealthy cells, older traces)."""
-    prefill = ((scaling or {}).get("prefill") or {}).get("fit") or {}
-    decode = ((scaling or {}).get("decode") or {}).get("fit") or {}
-    into["thr_prefill_floor_ms"] = prefill.get("floor_ms")
-    into["thr_prefill_scaled_ms"] = prefill.get("scaled_ms")
-    into["thr_prefill_r2"] = prefill.get("r2")
-    into["thr_decode_rate_max_tps"] = decode.get("rate_max_tps")
-    into["thr_decode_threads_scale"] = decode.get("threads_scale")
-    into["thr_decode_r2"] = decode.get("r2")
-    floor, scaled = prefill.get("floor_ms"), prefill.get("scaled_ms")
-    into["thr_prefill_floor_pct"] = (
-        round(100 * floor / (floor + scaled), 2) if floor is not None and floor + scaled else None
-    )
-    scale = decode.get("threads_scale")
-    into["thr_decode_threads_p90"] = round(-scale * math.log(0.1), 2) if scale else None
-
-
 def load_results(root: str | Path = "results") -> pd.DataFrame:
     """The validation-job frame: one row per (machine, backend, model, quant,
     provider). Raises ValueError on a schema_version mismatch; empty DataFrame
@@ -205,7 +177,6 @@ def load_results(root: str | Path = "results") -> pd.DataFrame:
             row["fit_slope_ms_per_1k"] = fit.get("slope_ms_per_1k")
             row["fit_r2"] = fit.get("r2")
             row["fit_resid_max_pct"] = fit.get("resid_max_pct")
-            _thread_scaling(row, run["sweep"].get("thread_scaling"))
             # Dispatch-width sensitivity, worst of the measured depths: how much
             # this silicon minds a narrower micro-batch.
             penalties = [

@@ -213,7 +213,7 @@
               "type": "object",
               "additionalProperties": false,
               "required": ["prefill", "decode"],
-              "description": "How each phase pays for intra-op thread width, on CPU lanes. Widths walk DOWN from the lane's own default (above it lies only SMT, which costs both phases). The work units are smaller than the main ladder's and NOT comparable to it — only the ratio between widths is claimed — and each phase is sampled where it is cheap: prefill from an empty cache, decode at a fill the pass already primed. A scaling indicator, not a second operating point. The two phases carry DIFFERENT fit shapes on purpose: prefill is compute-bound and Amdahl-clean, decode saturates a shared memory path and needs a saturating form.",
+              "description": "How each phase pays for intra-op thread width, on CPU lanes. Widths walk DOWN from every physical core, through the lane's own default (above the top lies only SMT, which is not walked). The work units are smaller than the main ladder's and NOT comparable to it — only the ratio between widths is claimed — and each phase is sampled where it is cheap: prefill from an empty cache, decode at a fill the pass already primed. A scaling indicator, not a second operating point. The two phases carry DIFFERENT fit shapes on purpose: prefill is compute-bound and Amdahl-clean, decode saturates a shared memory path and needs a saturating form. Both fits are asymptotes over a ladder that ends at the widest width the lane runs, so the report publishes the points and the ratios between them and draws neither fit.",
               "properties": {
                 "prefill": {
                   "type": "object",

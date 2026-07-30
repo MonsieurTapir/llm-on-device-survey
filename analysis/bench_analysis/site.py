@@ -43,10 +43,8 @@ Nothing is fetched when the page is *viewed*.
 from __future__ import annotations
 
 import argparse
-import math
 import re
 import urllib.request
-from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -2001,80 +1999,18 @@ THREAD_PHASES = (
     },
 )
 
+
 # How many points a fitted curve is drawn from, between one thread and the widest
 # width that lane measured. Enough that a hyperbola reads as a curve; the fit is
 # never sampled past its evidence.
-THREAD_FIT_SAMPLES = 40
-
-
-def _thread_curve(phase: str, fit: dict, threads: float) -> float:
-    """What a phase's fit predicts at an intra-op width. Prefill is Amdahl's form
-    (`ms = floor + scaled/N`), decode a saturating exponential
-    (`tok/s = rate_max · (1 − e^(−N/threads_scale))`) — two shapes because the two
-    phases behave differently: one keeps dividing work, the other saturates."""
-    if phase == "prefill":
-        return fit["floor_ms"] + fit["scaled_ms"] / threads
-    return fit["rate_max_tps"] * (1 - math.exp(-threads / fit["threads_scale"]))
-
-
-def _thread_fits(df: pd.DataFrame) -> dict[tuple[str, str], dict]:
-    """Per (lane, model) that measured a thread ladder: both fits, in the units they
-    were fitted in, and the width the lane actually runs each phase at.
-
-    The fits come from the results frame's `thr_*` columns — the harness fits them,
-    the report only draws them. A lane with no ladder (every GPU lane, and every
-    submission predating the measurement) carries NaN there and is absent here."""
-    fits: dict[tuple[str, str], dict] = {}
-    if df.empty or "thr_prefill_scaled_ms" not in df:
-        return fits
-    for r in df.itertuples():
-        floor = _plain(r.thr_prefill_floor_ms, 3)
-        scaled = _plain(r.thr_prefill_scaled_ms, 3)
-        prefill = None
-        if scaled is not None and floor is not None:
-            prefill = {
-                "floor_ms": floor,
-                "scaled_ms": scaled,
-                "floor_pct": _plain(r.thr_prefill_floor_pct, 2),
-                "r2": _plain(r.thr_prefill_r2, 5),
-                "width": _plain(r.threads_batch, 0),
-            }
-        rate_max = _plain(r.thr_decode_rate_max_tps, 3)
-        scale = _plain(r.thr_decode_threads_scale, 4)
-        decode = None
-        if rate_max is not None and scale:
-            decode = {
-                "rate_max_tps": rate_max,
-                "threads_scale": scale,
-                "p90": _plain(r.thr_decode_threads_p90, 2),
-                "r2": _plain(r.thr_decode_r2, 5),
-                "width": _plain(r.threads_decode, 0),
-            }
-        if prefill is None and decode is None:
-            continue
-        fits[(r.lane, r.model)] = {
-            "lane": r.lane,
-            "dev_class": r.dev_class,
-            "machine": r.machine,
-            "model": r.model,
-            "quant": r.quant,
-            "backend": r.backend,
-            "prefill": prefill,
-            "decode": decode,
-        }
-    return fits
-
-
-def _thread_rows(thr: pd.DataFrame, fits: dict[tuple[str, str], dict]) -> list[dict]:
+def _thread_rows(thr: pd.DataFrame) -> list[dict]:
     """The ladder's measured points: one row per (lane, model, phase, width).
 
     `value` is the phase's own unit — the chunk's milliseconds for prefill, the
-    burst's tok/s for decode — because those are the units the fits were taken in,
-    which is what lets both fitted parameters draw as asymptotes on the same axis.
-    `at_width` marks the width the lane actually runs: the one point in the chart
-    that is also an operating point. A prefill point has no `kv_fill` (its chunk
-    starts from an empty cache), and that reads as None, never NaN — the island is
-    strict JSON."""
+    burst's tok/s for decode. `at_width` marks the width the lane actually runs: the
+    one point in the chart that is also an operating point. A prefill point has no
+    `kv_fill` (its chunk starts from an empty cache), and that reads as None, never
+    NaN — the island is strict JSON."""
     rows: list[dict] = []
     if thr.empty:
         return rows
@@ -2084,7 +2020,6 @@ def _thread_rows(thr: pd.DataFrame, fits: dict[tuple[str, str], dict]) -> list[d
             continue
         width = _plain(r.threads_batch if r.phase == "prefill" else r.threads_decode, 0)
         fill = _plain(r.kv_fill, 0)
-        fit = (fits.get((r.lane, r.model)) or {}).get(r.phase) or {}
         rows.append(
             {
                 "lane": r.lane,
@@ -2100,188 +2035,117 @@ def _thread_rows(thr: pd.DataFrame, fits: dict[tuple[str, str], dict]) -> list[d
                 "tokens": int(r.tokens),
                 "kv_fill": None if fill is None else int(fill),
                 "at_width": bool(width is not None and int(width) == int(r.threads)),
-                "r2": fit.get("r2"),
-                "n_widths": 0,
-                "in_domain": True,
                 "label": None,
             }
         )
-    widths = Counter((r["lane"], r["model"], r["phase"]) for r in rows)
-    for row in rows:  # how many widths the fit rests on, in every tooltip
-        row["n_widths"] = widths[(row["lane"], row["model"], row["phase"])]
     return rows
 
 
-def _thread_spans(points: list[dict]) -> dict[tuple[str, str, str], dict]:
-    """Per (lane, model, phase): the widest width measured, how many widths were, and
-    the work unit they were measured on. The widest width is where a fitted curve
-    stops — the ladder walks down from the lane's own default, so there is no
-    evidence above it and none is drawn."""
-    spans: dict[tuple[str, str, str], dict] = {}
+def _thread_efficiency(phase: str, lo: dict, hi: dict) -> float:
+    """What one step up the ladder bought, against what it would have bought if the
+    added threads were free and perfectly divided. Prefill is a time, so its speedup
+    is the ratio the other way up; decode is a rate."""
+    ideal = hi["threads"] / lo["threads"]
+    gained = lo["value"] / hi["value"] if phase == "prefill" else hi["value"] / lo["value"]
+    return gained / ideal
+
+
+def _thread_steps(points: list[dict]) -> list[dict]:
+    """One row per adjacent pair of measured widths: what the step actually bought.
+
+    This is the section's only derived number, and it is a ratio between two things
+    that were measured — no curve is fitted through the ladder and nothing is
+    extrapolated past it. Drawn at the midpoint of the step it describes, so it reads
+    along the curve rather than at an axis."""
+    by_lane: dict[tuple[str, str, str], list[dict]] = {}
     for row in points:
-        key = (row["lane"], row["model"], row["phase"])
-        span = spans.setdefault(
-            key, {"widest": 0, "n": 0, "tokens": row["tokens"], "kv_fill": row["kv_fill"]}
-        )
-        span["widest"] = max(span["widest"], row["threads"])
-        span["n"] += 1
-    return spans
-
-
-def _thread_fit_rows(
-    fits: dict[tuple[str, str], dict], spans: dict[tuple[str, str, str], dict]
-) -> list[dict]:
-    """The drawn consequences of the two fits: the curve, its asymptote, and the width
-    that reaches 90% of peak decode.
-
-    The curve is sampled from one thread to the widest width that lane measured and
-    not one thread further — the ladder walks {W, W/2, W/4}, so above W there is no
-    evidence at all.
-
-    The asymptotes are the fitted parameters themselves: decode's `rate_max` is the
-    tok/s an unbounded width would approach, prefill's `floor_ms` the part of a
-    chunk no width removes. A floor fitted over two or three widths can come out
-    negative, which is not a floor — that draws no line and the table says "no
-    measurable floor" instead.
-
-    The 90%-of-peak width draws as a rule only when it falls inside the measured
-    widths; past them it would stretch the x scale to reach itself, so it becomes a
-    note at the left edge instead."""
+        by_lane.setdefault((row["lane"], row["model"], row["phase"]), []).append(row)
     rows: list[dict] = []
-    for (lane, model), rec in sorted(fits.items()):
-        for phase in (p["phase"] for p in THREAD_PHASES):
-            fit, span = rec[phase], spans.get((lane, model, phase))
-            if not fit or not span:
+    for (_lane, _model, phase), group in sorted(by_lane.items()):
+        ladder = sorted(group, key=lambda r: r["threads"])
+        for lo, hi in zip(ladder, ladder[1:], strict=False):
+            if not (lo["value"] > 0 and hi["value"] > 0):
                 continue
-            base = {
-                k: rec[k] for k in ("lane", "dev_class", "machine", "model", "quant", "backend")
-            }
-            base |= {
-                "phase": phase,
-                "tokens": span["tokens"],
-                "kv_fill": span["kv_fill"],
-                "at_width": False,
-                "r2": fit["r2"],
-                "n_widths": span["n"],
-                "in_domain": True,
-                "label": None,
-            }
-            widest = span["widest"]
-            for i in range(THREAD_FIT_SAMPLES + 1):
-                threads = 1 + (widest - 1) * i / THREAD_FIT_SAMPLES
-                rows.append(
-                    {
-                        **base,
-                        "kind": "fit",
-                        "threads": round(threads, 3),
-                        "value": round(_thread_curve(phase, fit, threads), 2),
-                    }
-                )
-            if phase == "decode":
-                rows.append(
-                    {
-                        **base,
-                        "kind": "asymptote",
-                        "threads": None,
-                        "value": round(fit["rate_max_tps"], 2),
-                        "label": "fitted ceiling, unbounded width",
-                    }
-                )
-                p90 = fit["p90"]
-                if p90:
-                    inside = p90 <= widest
-                    rows.append(
-                        {
-                            **base,
-                            "kind": "p90",
-                            "value": None,
-                            "threads": p90 if inside else None,
-                            "in_domain": inside,
-                            "label": (
-                                f"90% of peak at {p90:g} threads"
-                                if inside
-                                else f"90% of peak above {widest} threads"
-                            ),
-                        }
-                    )
-            elif fit["floor_ms"] > 0:
-                rows.append(
-                    {
-                        **base,
-                        "kind": "asymptote",
-                        "threads": None,
-                        "value": round(fit["floor_ms"], 2),
-                        "label": "fitted floor, no width removes it",
-                    }
-                )
+            efficiency = _thread_efficiency(phase, lo, hi)
+            rows.append(
+                {
+                    **{
+                        k: lo[k]
+                        for k in (
+                            "lane",
+                            "dev_class",
+                            "machine",
+                            "model",
+                            "quant",
+                            "backend",
+                            "phase",
+                            "tokens",
+                            "kv_fill",
+                        )
+                    },
+                    "kind": "step",
+                    "at_width": False,
+                    "threads": round((lo["threads"] + hi["threads"]) / 2, 3),
+                    "value": round((lo["value"] + hi["value"]) / 2, 2),
+                    "label": f"{lo['threads']}→{hi['threads']} threads: {efficiency:.0%} of ideal",
+                }
+            )
     return rows
 
 
-def _thread_scalar_rows(
-    fits: dict[tuple[str, str], dict], spans: dict[tuple[str, str, str], dict]
-) -> list[dict]:
-    """The headline numbers behind the two charts, one row per (lane, model).
+def _thread_scalar_rows(points: list[dict], steps: list[dict]) -> list[dict]:
+    """The headline numbers behind the two charts, one row per (lane, model) — all of
+    them read off measured points.
 
-    The width the lane runs is the one in its label; the 90%-of-peak width is where
-    decode stops paying for cores; the floor share is how much of a single thread's
-    chunk no width removes, which is why prefill keeps rewarding them. A fit taken
-    over two widths has one residual and no third point to judge it by, and a floor
-    fitted that short can come out negative — both say so rather than printing a
-    number that reads like evidence."""
+    The widths run are the ladder itself, so a reader can see how much of the machine
+    it covered; the top step is what the last doubling actually bought. There is no
+    ceiling column and no 90%-of-peak column: both were fitted asymptotes, and this
+    ladder stops at the widest width the lane was willing to run, which is where an
+    asymptote is least constrained. What a wider width would buy is not in evidence
+    here, so it is not claimed here."""
+    keyed: dict[tuple[str, str], dict] = {}
+    for row in points:
+        rec = keyed.setdefault((row["lane"], row["model"]), {"widths": {}, "run": {}, "top": {}})
+        rec["widths"].setdefault(row["phase"], set()).add(row["threads"])
+        if row["at_width"]:
+            rec["run"][row["phase"]] = row["threads"]
+    for row in steps:  # the last step of each ladder is the informative one
+        rec = keyed.get((row["lane"], row["model"]))
+        if rec is not None:
+            best = rec["top"].get(row["phase"])
+            if best is None or row["threads"] > best["threads"]:
+                rec["top"][row["phase"]] = row
+
     rows = []
-    for (lane, model), rec in sorted(fits.items()):
-        pre, dec = rec["prefill"], rec["decode"]
-        counts = [
-            spans[(lane, model, phase)]["n"]
-            for phase in ("prefill", "decode")
-            if (lane, model, phase) in spans
-        ]
-        if not counts:
-            continue
-        widths = [int(f["width"]) for f in (pre, dec) if f and f["width"]]
-        width = "—"
-        if widths:
-            width = (
-                f"{widths[0]}"
-                if len(set(widths)) == 1
-                else f"{widths[0]} prompt / {widths[-1]} generation"
-            )
-        p90 = "—"
-        if dec and dec["p90"]:
-            widest = spans.get((lane, model, "decode"), {}).get("widest", 0)
-            past = "" if dec["p90"] <= widest else f" (above the {widest} measured)"
-            p90 = f"{dec['p90']:g} threads{past}"
-        floor = "—"
-        if pre:
-            floor = f"{pre['floor_pct']:g}%" if pre["floor_ms"] > 0 else "no measurable floor"
-        r2 = " / ".join(f"{f['r2']:.4f}" if f and f["r2"] is not None else "—" for f in (pre, dec))
+    for (lane, model), rec in sorted(keyed.items()):
+        run = sorted(set(rec["run"].values()))
+        widths = sorted({w for s in rec["widths"].values() for w in s})
+        step = {p: (rec["top"].get(p) or {}).get("label", "—") for p in ("prefill", "decode")}
         rows.append(
             {
                 "lane": lane,
                 "model": model,
-                "width": width,
-                "p90": p90,
-                "ceiling": f"{dec['rate_max_tps']:.1f} tok/s" if dec else "—",
-                "floor": floor,
-                "r2": r2,
-                "note": "two widths only" if min(counts) < 3 else "—",
+                "width": ", ".join(str(w) for w in run) or "—",
+                "measured": ", ".join(str(w) for w in widths) or "—",
+                "prefill_step": step["prefill"],
+                "decode_step": step["decode"],
+                "note": "two widths only" if len(widths) < 3 else "—",
             }
         )
     return rows
 
 
 def _thread_tooltip(value_title: str, *, fill: bool) -> list[dict]:
-    """One ladder point on hover: the width, its number in the phase's own unit, the
-    fill it was primed at where a phase has one, and the quality of the fit through it.
-    The lane is the color and the legend, the work unit is in the y-axis title, and the
-    widths are the dots themselves — none of that is repeated here. A prefill chunk
-    starts from an empty cache, so that chart has no fill row at all rather than an
-    empty one."""
+    """One ladder point on hover: the width, its number in the phase's own unit, and
+    the fill it was primed at where a phase has one. The lane is the color and the
+    legend, the work unit is in the y-axis title, and the widths are the dots
+    themselves — none of that is repeated here. A prefill chunk starts from an empty
+    cache, so that chart has no fill row at all rather than an empty one. No fit
+    quality either: nothing is fitted through these points any more."""
     return [
         {"field": "threads", "title": "intra-op threads"},
         {"field": "value", "title": value_title},
         *([{"field": "kv_fill", "title": "primed fill (tokens)"}] if fill else []),
-        {"field": "r2", "title": "fit r²"},
     ]
 
 
@@ -2295,17 +2159,16 @@ def _thread_spec(
     y_title: str,
     value_title: str,
 ) -> dict:
-    """One phase's thread ladder: the measured widths as dots and the harness's fit as
-    the line through them.
+    """One phase's thread ladder: the measured widths as dots, joined so the shape
+    reads. The line is interpolation between measurements and nothing more — no curve
+    is fitted through them and nothing is drawn past the widest width run.
 
     The hollow ring is the width the lane actually runs — every other dot is a width
     the ladder visited to find the shape.
 
-    A lane's fitted parameters are drawn on hover and not before: its asymptote as a
-    dashed line, and on the decode chart the dashed vertical rule where the fit
-    reaches 90% of its ceiling — the width past which the machine stops being paid
-    for cores. Every lane's at once is four ceilings, four rules and four labels
-    overprinting one another, which is a chart of its own annotations.
+    On hover, that lane's steps label themselves with what each one bought against a
+    perfect division of the work. One lane at a time: every lane's at once is more
+    annotation than chart.
 
     Same frame as the cost curves (400×220, lane hue, legend at the bottom) and the
     same controls, because it is the same lanes seen from a different axis. Unlike
@@ -2326,32 +2189,27 @@ def _thread_spec(
         "scale": _lane_scale(lanes, LANE_COLORS),
         "legend": {"orient": "bottom", "columns": 2, "title": None},
     }
-    # Points answer with their own measurement; the two dashed lines answer with what
-    # they are, which is a fitted parameter and not a measured width at all.
     tooltip = _thread_tooltip(value_title, fill=any(r.get("kv_fill") is not None for r in rows))
-    fitted = [{"field": "label", "title": "line"}, {"field": "value", "title": value_title}]
-    reached = [
-        {"field": "label", "title": "line"},
-        {"field": "threads", "title": "intra-op threads"},
-    ]
-    # The rule this labels is vertical, so it has no y of its own to sit at: the text
-    # is placed in pixels, at the foot of the rule. The foot rather than the head
-    # because the head is where a saturating fit's own ceiling line runs.
-    label = {"type": "text", "align": "left", "dx": 4, "fontSize": 9, "baseline": "bottom"}
-    label_y = {"value": 214}  # just clear of the axis, in a 220-tall plot
-    # A fitted parameter belongs to one lane, and drawing every lane's at once buried
-    # the curves the chart is about — four ceilings, four rules and four labels
-    # overprinting each other along one axis. They are asked for instead: point at a
-    # curve and that lane's own answers appear.
+    # A step label sits on the segment it describes, lifted clear of the line.
+    label = {
+        "type": "text",
+        "align": "center",
+        "baseline": "bottom",
+        "dy": -7,
+        "fontSize": 9,
+    }
+    # A step belongs to one lane, and every lane's at once buried the curves the chart
+    # is about. They are asked for instead: point at a curve and that lane's own steps
+    # label themselves.
     #
-    # The target is a fat invisible copy of the fit line, because a 2px path is not
+    # The target is a fat invisible copy of the line, because a 2px path is not
     # something a pointer can be asked to land on. It sits *under* the dots so their
     # tooltips still win the pointer — which is also why `nearest` is not used here:
     # it overlays a voronoi whose datum is the mark item rather than the row, and
     # every tooltip field on the layer it is declared on comes out `undefined`.
     #
     # Nothing clears the selection. Crossing a dot would otherwise drop the lane's
-    # annotations for as long as the pointer sat on it, and a reader who has stopped
+    # labels for as long as the pointer sat on it, and a reader who has stopped
     # pointing is still reading the lane they stopped on.
     hover = {
         "name": "lane_hover",
@@ -2378,31 +2236,17 @@ def _thread_spec(
         "width": 400,
         "height": 220,
         "layer": [
-            # The fitted parameter as a line across the chart: prefill's floor, the
-            # part of a chunk no width removes; decode's ceiling, the rate an
-            # unbounded width would approach.
+            # The measured widths, joined. Interpolation for legibility, not a fit:
+            # it stops at the widest width run, because nothing was measured past it.
             {
-                "transform": [{"filter": "datum.kind === 'asymptote'"}, only_hovered],
-                "mark": {"type": "rule", "strokeDash": [4, 3], "strokeWidth": 1.5, "opacity": 0.55},
-                "encoding": {"y": y, "color": color, "tooltip": fitted},
-            },
-            {
-                "transform": [
-                    {"filter": "datum.kind === 'p90' && datum.in_domain"},
-                    only_hovered,
-                ],
-                "mark": {"type": "rule", "strokeDash": [2, 3], "strokeWidth": 1.5, "opacity": 0.55},
-                "encoding": {"x": x, "color": color, "tooltip": reached},
-            },
-            {
-                "transform": [{"filter": "datum.kind === 'fit'"}],
+                "transform": [{"filter": "datum.kind === 'point'"}],
                 "mark": {"type": "line", "strokeWidth": 2},
                 "encoding": {"x": x, "y": y, "color": color},
             },
-            # The hover target: the fit line again, fat and invisible, one path per
-            # lane. Under the dots, so a dot's own tooltip still wins the pointer.
+            # The hover target: that line again, fat and invisible, one path per lane.
+            # Under the dots, so a dot's own tooltip still wins the pointer.
             {
-                "transform": [{"filter": "datum.kind === 'fit'"}],
+                "transform": [{"filter": "datum.kind === 'point'"}],
                 "params": [hover],
                 "mark": {"type": "line", "strokeWidth": 16, "opacity": 0},
                 "encoding": {"x": x, "y": y, "detail": {"field": "lane"}},
@@ -2419,29 +2263,11 @@ def _thread_spec(
                 "mark": {"type": "point", "filled": False, "size": 110, "strokeWidth": 2},
                 "encoding": {"x": x, "y": y, "color": color, "tooltip": tooltip},
             },
+            # What each step of the hovered lane's ladder bought, on the step itself.
             {
-                "transform": [
-                    {"filter": "datum.kind === 'p90' && datum.in_domain"},
-                    only_hovered,
-                ],
+                "transform": [{"filter": "datum.kind === 'step'"}, only_hovered],
                 "mark": label,
-                "encoding": {"x": x, "y": label_y, "color": color, "text": {"field": "label"}},
-            },
-            # A 90%-of-peak width above every width measured has no rule to name: a
-            # rule there would stretch the x scale to reach itself, so the fact goes
-            # to the left edge as text.
-            {
-                "transform": [
-                    {"filter": "datum.kind === 'p90' && !datum.in_domain"},
-                    only_hovered,
-                ],
-                "mark": {**label, "fontStyle": "italic"},
-                "encoding": {
-                    "x": {"datum": 1, "type": "quantitative"},
-                    "y": label_y,
-                    "color": color,
-                    "text": {"field": "label"},
-                },
+                "encoding": {"x": x, "y": y, "color": color, "text": {"field": "label"}},
             },
         ],
         "config": {"view": {"stroke": None}},
@@ -2541,11 +2367,10 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
         # `_with_lanes` to read, so the guard comes first.
         thr = load_thread_scaling(published)
         thread_ids: list[str] = []
-        fits = _thread_fits(df)
-        if not thr.empty and fits:
-            points = _thread_rows(_with_lanes(thr), fits)
-            spans = _thread_spans(points)
-            rows = points + _thread_fit_rows(fits, spans)
+        if not thr.empty:
+            points = _thread_rows(_with_lanes(thr))
+            steps = _thread_steps(points)
+            rows = points + steps
             for phase in THREAD_PHASES:
                 drawn = [r for r in rows if r["phase"] == phase["phase"]]
                 if not any(r["kind"] == "point" for r in drawn):
@@ -2565,7 +2390,7 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
                     value_title=phase["value_title"],
                 )
                 thread_ids.append(sid)
-            context["thread_scalars"] = _thread_scalar_rows(fits, spans)
+            context["thread_scalars"] = _thread_scalar_rows(points, steps)
         context["threads"] = thread_ids
 
         probes = _with_lanes(load_probes(published))

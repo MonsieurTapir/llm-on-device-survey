@@ -211,17 +211,20 @@
     one fixed prompt chunk from an empty cache, tok/s for one fixed generation burst at
     an already-filled context. Those work units are small and are not the ones the
     charts above use, so read ratios between widths within a chart — never a number
-    here against the generation rates in Results. The line is the fit the harness took
-    over the measured widths, drawn no further than them; the hollow ring is the width
+    here against the generation rates in Results. The dots are the widths that ran and
+    the line between them is interpolation, not a fit; the hollow ring is the width
     the lane actually runs, which is the width every other number on this page comes
-    from. Hover a curve for that lane's fitted limits, drawn one lane at a time
-    because all of them at once is more annotation than chart: a dashed horizontal
-    line for the limit the fit approaches — for the prompt, the part of a chunk that
-    no width removes; for generation, the rate an unbounded width would reach. The
-    two phases behave differently on purpose. Prompt reading keeps dividing its work,
-    so it keeps rewarding cores; generation saturates a shared memory path and stops
-    paying — hovering a generation curve also marks where its fit reaches 90% of its
-    ceiling, and that width is what a reduced-power operating mode would pick.</p>
+    from. Hover a curve to label its steps with what each one bought against a perfect
+    division of the work — one lane at a time, because all of them at once is more
+    annotation than chart. The two phases behave differently on purpose: prompt
+    reading keeps dividing its work, so it keeps rewarding cores, while generation
+    shares one memory path and pays less for each core added.</p>
+  <p class="fine">Nothing here is extrapolated. The ladder walks down from the width
+    the OS picked for the lane, so it stops at the widest width that lane will run —
+    which is exactly where a fitted ceiling would have no evidence under it. What a
+    wider width would buy is not measured, so it is not claimed, and how much of a
+    machine the ladder covered depends on the platform: linux and windows hand out
+    every physical core, macOS only the top performance cluster.</p>
   <div class="curves">
     {% for sid in threads %}<div class="island" data-spec="{{ sid }}"></div>{% endfor %}
   </div>
@@ -229,14 +232,13 @@
   <div class="scroll-x">
   <table>
     <thead><tr><th>lane</th><th>model</th><th>width run</th>
-      <th>90% of generation peak</th><th>fitted ceiling</th>
-      <th>prompt floor, share of a 1-thread chunk</th>
-      <th>fit r² (prompt / generation)</th><th>notes</th></tr></thead>
+      <th>widths measured</th>
+      <th>top step, prompt</th><th>top step, generation</th><th>notes</th></tr></thead>
     <tbody>
     {% for t in thread_scalars %}
       <tr><td>{{ t.lane }}</td><td>{{ t.model }}</td><td>{{ t.width }}</td>
-        <td>{{ t.p90 }}</td><td>{{ t.ceiling }}</td><td>{{ t.floor }}</td>
-        <td>{{ t.r2 }}</td><td>{{ t.note }}</td></tr>
+        <td>{{ t.measured }}</td>
+        <td>{{ t.prefill_step }}</td><td>{{ t.decode_step }}</td><td>{{ t.note }}</td></tr>
     {% endfor %}
     </tbody>
   </table>

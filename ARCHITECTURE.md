@@ -138,18 +138,24 @@ width on every CPU lane. `--threads` / `--threads-batch` override them for a
 deliberate A/B; published runs are always the default.
 
 **What a thread actually buys, per phase.** Every CPU lane also walks a short
-thread ladder *down* from its default — a narrow prefill chunk from an empty
-cache, and a decode burst at a fill the sweep already primed, so the loaded model
-pays no second setup and the whole indicator costs a few seconds. The two phases
-answer differently, and that is the point: prefill is compute-bound and keeps
-taking cores (`ms = floor + scaled/N`, the floor typically a few percent of
-single-thread time), while decode saturates a shared memory path and stops
-rewarding them early (`tok/s = rate_max·(1 − e^(−N/N₀))`, so the width reaching
-90% of peak is `−N₀·ln 0.1` — often a small fraction of the cores). Different fit
-shapes because the physics differs, not for variety: a hyperbola leaves
-S-shaped residuals on decode, and a hard-knee roofline fits worse still, since
-saturation is gradual and no single width is free. Work units are smaller than
-the main ladder's and not comparable to it — only the ratio between widths is
+thread ladder *down* from every physical core, through its own default — a narrow
+prefill chunk from an empty cache, and a decode burst at a fill the sweep already
+primed, so the loaded model pays no second setup and the whole indicator costs a
+few seconds. The top is the hardware's, not the OS's: llama.cpp's default asks for
+the performance cluster only on Apple, and a ladder starting there would cover six
+of eighteen cores while its axis said "threads". The two phases answer
+differently, and that is the point: prefill keeps dividing its work and keeps
+taking cores, while decode shares one memory path and pays less for each core
+added.
+
+The report draws the measured widths and the ratio between adjacent ones, and
+nothing else. The harness still fits both phases, but neither fit is published:
+both parameters are asymptotes — the part of a chunk no width removes, the rate an
+unbounded width would reach — and this ladder stops at the widest width the lane
+will run, which is exactly where an asymptote has no evidence under it. Fitted
+that way one lane's ceiling came out *below* a rate the machine had actually
+achieved. Work units are smaller than the main ladder's and not comparable to it —
+only the ratio between widths is
 claimed, the same standing as the ubatch subdivision. Upward is not sampled: on
 linux and windows the default is already every physical core and above it lies
 only SMT, which measurably costs both phases.
