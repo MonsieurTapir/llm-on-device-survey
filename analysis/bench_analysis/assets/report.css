@@ -22,9 +22,16 @@ a { color: var(--accent); }
         font-size: .85rem; color: var(--ink2); }
 .chip b { color: var(--ink); }
 
-.install { background: var(--card); border-radius: 10px; padding: 1rem 1.1rem;
-           margin-top: 1.4rem; }
-.install h2 { margin-top: 0; }
+/* the contribute call to action: a closed bar until the reader wants the command */
+.cta { background: var(--card); border-radius: 10px; margin: 1.4rem 0 0;
+       border-left: 3px solid var(--accent); }
+.cta > summary { display: flex; align-items: baseline; gap: .6rem; cursor: pointer;
+                 padding: .8rem 1rem; list-style: none; }
+.cta > summary::-webkit-details-marker { display: none; }
+.cta > summary b { color: var(--accent); }
+.cta > summary::after { content: "+"; margin-left: auto; color: var(--ink2); }
+.cta[open] > summary::after { content: "–"; }
+.cta-body { padding: 0 1rem .9rem; }
 .cmd { display: flex; align-items: center; gap: .6rem; margin: .5rem 0; }
 .cmd .os { flex: 0 0 7.5rem; color: var(--ink2); font-size: .85rem; }
 .cmd code {
@@ -44,6 +51,25 @@ button.copy:hover { border-color: var(--accent); color: var(--accent); }
 .curves { display: flex; gap: 1.2rem; flex-wrap: wrap; }
 details { margin: .5rem 0; }
 summary { cursor: pointer; font-weight: 600; }
+
+/* the tail: one fold, its four tables behind a tab strip */
+.fold { margin: 2.2rem 0 0; border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line); }
+.fold > summary { display: flex; align-items: baseline; gap: .5rem;
+                  padding: .7rem .1rem; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "+"; color: var(--ink2); font-weight: 400;
+                          width: .7rem; }
+.fold[open] > summary::before { content: "–"; }
+.fold > summary .hint { margin-left: auto; color: var(--ink2); font-weight: 400;
+                        font-size: .85rem; }
+.fold > :last-child { margin-bottom: 1rem; }
+.tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin: .1rem 0 .6rem; }
+.tab { background: none; border: 0; border-radius: 6px; cursor: pointer;
+       color: var(--ink2); font: inherit; font-size: .85rem; padding: .25rem .6rem; }
+.tab:hover { color: var(--ink); }
+.tab.on { background: var(--card); color: var(--ink); font-weight: 600; }
+.panel > .fine:first-child { margin-top: 0; }
 
 table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
 th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); }

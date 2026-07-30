@@ -6,7 +6,9 @@ backend — and a control is rendered only where the shelf holds more than one
 value for it. Under it, three bar charts (decode tok/s, prefill tok/s, warm init)
 share one lane axis: lanes are grouped into bands by what kind of device they are
 (discrete GPU / integrated GPU / CPU) and sorted by generation speed inside each
-band. The cost curves below read the same controls.
+band. The cost curves below read the same controls. The page opens on one fold
+(the contribute call to action) and closes on one more (the reference tables, as
+tab panels) — the charts are the only thing that greets the reader unasked.
 
 Two encodings, two jobs: in the grid, identity is the lane label on the axis, so
 hue is free to carry the device class (three classes, one validated triple, never
@@ -453,6 +455,28 @@ def build(published: Path, out: Path, vega_cache: Path | None = None) -> None:
             {"who": f"{r.machine} · {r.model} {r.quant} · {r.lane}",
              "text": str(r.sample_completion).strip()}
             for r in with_text.itertuples()
+        ]
+        # One fold, four panels: the reference tables the charts stand on. Only the
+        # ones this shelf can fill are offered; machines is always among them.
+        context["tabs"] = [
+            {"id": "machines", "label": f"Machines ({len(context['machines'])})",
+             "hint": "machines",
+             "about": "What each submission ran on. The GPU column is what the lanes "
+                      "reported, which is the only place an iGPU shows up."},
+            *([{"id": "ceilings", "label": "Device ceilings", "hint": "ceilings",
+                "about": "Bare probes with no model loaded: f16 GEMM and on-device "
+                         "copies, the roof the inference numbers sit under."}]
+              if context["ceilings"] else []),
+            *([{"id": "unusable",
+                "label": f"Unmeasurable cells ({len(context['unusable'])})",
+                "hint": "unmeasurable cells",
+                "about": "Attempted and produced no timing: killed by the backstop, "
+                         "below the usable tok/s floor, or failed the brain-check."}]
+              if context["unusable"] else []),
+            *([{"id": "samples", "label": "Output samples", "hint": "output samples",
+                "about": "One completion per model, decoded during the measured run "
+                         "— the numbers came from a model that was working."}]
+              if context["completions"] else []),
         ]
         context["stats"] = [
             {"v": f"{df.machine.nunique()}", "k": "machines"},

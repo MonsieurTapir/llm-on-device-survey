@@ -20,19 +20,22 @@
   {% endif %}
 </header>
 
-<section class="install">
-  <h2>Add your machine</h2>
-  <div class="cmd"><span class="os">Linux / macOS</span>
-    <code id="cmd-bash">{{ install_bash }}</code>
-    <button class="copy" data-copy="cmd-bash">copy</button></div>
-  <div class="cmd"><span class="os">Windows</span>
-    <code id="cmd-ps">{{ install_ps }}</code>
-    <button class="copy" data-copy="cmd-ps">copy</button></div>
-  <p class="fine">One script: downloads a prebuilt kit and the models
-    (~8&nbsp;GB), measures for 15–60 minutes, and produces a ~300&nbsp;KB
-    results file to attach to a
-    <a href="{{ project_url }}/issues/new?template=submission.yml">submission issue</a>.</p>
-</section>
+<details class="cta">
+  <summary><b>Add your machine</b>
+    <span class="fine">one command · 15–60 min · ~8&nbsp;GB download</span></summary>
+  <div class="cta-body">
+    <div class="cmd"><span class="os">Linux / macOS</span>
+      <code id="cmd-bash">{{ install_bash }}</code>
+      <button class="copy" data-copy="cmd-bash">copy</button></div>
+    <div class="cmd"><span class="os">Windows</span>
+      <code id="cmd-ps">{{ install_ps }}</code>
+      <button class="copy" data-copy="cmd-ps">copy</button></div>
+    <p class="fine">One script: downloads a prebuilt kit and the models
+      (~8&nbsp;GB), measures for 15–60 minutes, and produces a ~300&nbsp;KB
+      results file to attach to a
+      <a href="{{ project_url }}/issues/new?template=submission.yml">submission issue</a>.</p>
+  </div>
+</details>
 
 {% if empty %}
 <section><p class="fine">No submissions yet.</p></section>
@@ -73,53 +76,54 @@
 </section>
 {% endif %}
 
-<section>
-  <h2>Machines</h2>
-  <table>
-    <thead><tr><th>machine</th><th>CPU</th><th>GPU</th><th>RAM</th></tr></thead>
-    <tbody>
-    {% for m in machines %}
-      <tr><td>{{ m.machine }}</td><td>{{ m.cpu }}</td><td>{{ m.gpu }}</td><td>{{ m.ram }}</td></tr>
+<details class="fold">
+  <summary>Reference data<span class="hint">{{ tabs | map(attribute='hint') | join(' · ') }}</span></summary>
+  <div class="tabs" role="tablist">
+    {% for t in tabs %}
+    <button type="button" role="tab" class="tab{% if loop.first %} on{% endif %}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            aria-controls="p-{{ t.id }}" data-panel="p-{{ t.id }}">{{ t.label }}</button>
     {% endfor %}
-    </tbody>
-  </table>
-  {% if ceilings %}
-  <details><summary>Device ceilings (bare probes: f16 GEMM, on-device copies)</summary>
-  <table>
-    <thead><tr><th>lane</th><th>GEMM TFLOP/s</th><th>d2d GB/s</th></tr></thead>
-    <tbody>
-    {% for c in ceilings %}
-      <tr><td>{{ c.lane }}</td><td>{{ c.gemm }}</td><td>{{ c.d2d }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </details>
-  {% endif %}
-  {% if unusable %}
-  <details><summary>Unmeasurable cells ({{ unusable | length }}): too slow or errored</summary>
-  <table>
-    <thead><tr><th>lane</th><th>machine</th><th>model</th><th>quant</th><th>status</th></tr></thead>
-    <tbody>
-    {% for u in unusable %}
-      <tr><td>{{ u.lane }}</td><td>{{ u.machine }}</td><td>{{ u.model }}</td><td>{{ u.quant }}</td><td>{{ u.status }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </details>
-  {% endif %}
-</section>
-
-{% if completions %}
-<section>
-  <h2>Output samples</h2>
-  <details><summary>One completion per model, as decoded during the run</summary>
+  </div>
+  {% for t in tabs %}
+  <div class="panel" id="p-{{ t.id }}" role="tabpanel"{% if not loop.first %} hidden{% endif %}>
+    <p class="fine">{{ t.about }}</p>
+    {% if t.id == 'machines' %}
+    <table>
+      <thead><tr><th>machine</th><th>CPU</th><th>GPU</th><th>RAM</th></tr></thead>
+      <tbody>
+      {% for m in machines %}
+        <tr><td>{{ m.machine }}</td><td>{{ m.cpu }}</td><td>{{ m.gpu }}</td><td>{{ m.ram }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% elif t.id == 'ceilings' %}
+    <table>
+      <thead><tr><th>lane</th><th>GEMM TFLOP/s</th><th>d2d GB/s</th></tr></thead>
+      <tbody>
+      {% for c in ceilings %}
+        <tr><td>{{ c.lane }}</td><td>{{ c.gemm }}</td><td>{{ c.d2d }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% elif t.id == 'unusable' %}
+    <table>
+      <thead><tr><th>lane</th><th>machine</th><th>model</th><th>quant</th><th>status</th></tr></thead>
+      <tbody>
+      {% for u in unusable %}
+        <tr><td>{{ u.lane }}</td><td>{{ u.machine }}</td><td>{{ u.model }}</td><td>{{ u.quant }}</td><td>{{ u.status }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% elif t.id == 'samples' %}
     {% for c in completions %}
     <p class="fine">{{ c.who }}</p>
     <pre>{{ c.text }}</pre>
     {% endfor %}
-  </details>
-</section>
-{% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+</details>
 {% endif %}
 
 <footer>

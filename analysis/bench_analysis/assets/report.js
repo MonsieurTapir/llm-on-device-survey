@@ -16,6 +16,21 @@
     });
   });
 
+  /* The appendix tab strip: one panel visible, the rest `hidden`. */
+  document.querySelectorAll(".tabs").forEach(function (strip) {
+    var tabs = Array.prototype.slice.call(strip.querySelectorAll("button.tab"));
+    strip.addEventListener("click", function (event) {
+      var picked = event.target.closest("button.tab");
+      if (!picked) return;
+      tabs.forEach(function (tab) {
+        var on = tab === picked;
+        tab.classList.toggle("on", on);
+        tab.setAttribute("aria-selected", on ? "true" : "false");
+        document.getElementById(tab.dataset.panel).hidden = !on;
+      });
+    });
+  });
+
   var darkMap = JSON.parse(document.getElementById("lane-dark-map").textContent);
   var dark = window.matchMedia("(prefers-color-scheme: dark)");
   var selects = Array.prototype.slice.call(
