@@ -46,17 +46,25 @@ sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum 
 
 # ---------------------------------------------------------------- configure + build
 # One binary must be right on every contributor box: GGML_BACKEND_DL +
-# CPU_ALL_VARIANTS build one dlopen'd CPU module per x86 microarch, picked at
-# runtime; GGML_NATIVE=OFF keeps the host's ISA out of the shared code. Vulkan
-# is the universal GPU lane on linux/windows; macOS is a static Metal build
-# (one arm64 microarch — no variant machinery needed) with embedded shaders.
+# CPU_ALL_VARIANTS build one dlopen'd CPU module per microarch and pick at
+# runtime by feature probe, so GGML_NATIVE=OFF can keep the build host's ISA out
+# of the shared code without capping anyone. Every target needs that pair —
+# Apple silicon included: it is three microarchs for kernel purposes (M1 is
+# ARMv8.5 with no i8mm, M2/M3 add FEAT_I8MM, M4+ add SME), ggml ships
+# apple_m1 / apple_m2_m3 / apple_m4 variants accordingly, and with neither
+# ALL_VARIANTS nor GGML_CPU_ARM_ARCH set, ggml appends no -mcpu at all and clang
+# falls back to its baseline arm64 target — an M1 code path on every Mac, with
+# MATMUL_INT8 and SME compiled out. Selection is a real runtime probe there
+# (arch/arm/cpu-feats.cpp reads hw.optional.arm.FEAT_*), so the M1 kit still
+# picks the M1 module. Vulkan is the universal GPU lane on linux/windows, Metal
+# on macOS with embedded shaders.
 # GGML_CCACHE off: release builds must be clean and deterministic; on CI
 # runners there is no persistent cache to win, only cl.exe flake to lose.
-COMMON_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF)
+COMMON_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF
+  -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DBUILD_SHARED_LIBS=ON)
 case "$TARGET" in
 linux-x64)
-  FLAGS=("${COMMON_FLAGS[@]}" -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON
-    -DGGML_VULKAN=ON -DBUILD_SHARED_LIBS=ON
+  FLAGS=("${COMMON_FLAGS[@]}" -DGGML_VULKAN=ON
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON "-DCMAKE_INSTALL_RPATH=\$ORIGIN")
   ;;
 windows-x64)
@@ -66,13 +74,17 @@ windows-x64)
   # Compiler pinned to cl: with Ninja, cmake takes the first compiler on
   # PATH, and CI runners carry stray gcc toolchains that would win.
   FLAGS=("${COMMON_FLAGS[@]}" -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
-    -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_VULKAN=ON -DBUILD_SHARED_LIBS=ON)
+    -DGGML_VULKAN=ON)
   ;;
 macos-arm64)
   # Deployment target pinned: cmake otherwise defaults to the build host's OS,
   # and a kit built on a macos-15 runner would refuse to launch on older Macs.
+  # @loader_path is macOS's $ORIGIN: cmake gives each dylib an
+  # install_name of @rpath/<lib>.dylib, and this is the LC_RPATH that resolves
+  # it to the flat directory the exe and modules are staged into.
   FLAGS=("${COMMON_FLAGS[@]}" -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON "-DCMAKE_INSTALL_RPATH=@loader_path"
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
   ;;
 *) fail "unknown target $TARGET" ;;
 esac
@@ -93,28 +105,62 @@ EXE="$(find "$BUILD" -type f \( -name bench-llamacpp -o -name bench-llamacpp.exe
 [ -n "$EXE" ] || fail "no bench-llamacpp produced under $BUILD"
 cp "$EXE" "$EXE_DIR/"
 # Shared libs + dlopen'd backend modules, flat next to the exe: the exe's
-# $ORIGIN rpath (linux) / same-dir DLL lookup (windows) / static build (macos)
-# all resolve there, and ggml_backend_load_all searches the exe's directory.
+# $ORIGIN rpath (linux) / @loader_path rpath (macos) / same-dir DLL lookup
+# (windows) all resolve there, and ggml_backend_load_all searches the exe's
+# directory.
 # -type l keeps the soname symlinks (libllama.so.0 → …) the loader asks for;
 # they link within the same dir, so they survive the flat copy.
 find "$BUILD" \( -type f -o -type l \) \( -name 'libggml*.so*' -o -name 'libllama*.so*' \
   -o -name 'ggml*.dll' -o -name 'llama*.dll' -o -name '*.dylib' \) \
   -exec cp -P {} "$EXE_DIR/" \;
 
+# The whole point of the variant build: a missing module is a silent capability
+# downgrade on someone's machine, so count them. x86 declares a dozen variants,
+# Apple silicon exactly three (apple_m1 / apple_m2_m3 / apple_m4).
+CPU_MODULES=$(find "$EXE_DIR" \( -name '*ggml-cpu-*.so*' -o -name 'ggml-cpu-*.dll' \
+  -o -name '*ggml-cpu-*.dylib' \) | wc -l)
+case "$TARGET" in
+macos-arm64) MIN_CPU_MODULES=3 ;;
+*) MIN_CPU_MODULES=4 ;;
+esac
+[ "$CPU_MODULES" -ge "$MIN_CPU_MODULES" ] ||
+  fail "only $CPU_MODULES CPU variant modules staged (expected ≥$MIN_CPU_MODULES)"
 case "$TARGET" in
 linux-x64 | windows-x64)
-  # The whole point of the variant build: a missing module is a silent
-  # capability downgrade on someone's machine, so count them.
-  CPU_MODULES=$(find "$EXE_DIR" \( -name '*ggml-cpu-*.so*' -o -name 'ggml-cpu-*.dll' \) | wc -l)
-  [ "$CPU_MODULES" -ge 4 ] || fail "only $CPU_MODULES CPU variant modules staged (expected ≥4)"
   find "$EXE_DIR" \( -name '*ggml-vulkan*' \) | grep -q . || fail "vulkan module missing"
+  ;;
+macos-arm64)
+  find "$EXE_DIR" \( -name '*ggml-metal*' \) | grep -q . || fail "metal module missing"
   ;;
 esac
 
 say "smoke-test the staged exe"
 case "$TARGET" in
-windows-x64) "$EXE_DIR/bench-llamacpp.exe" version >/dev/null ;;
-*) "$EXE_DIR/bench-llamacpp" version >/dev/null ;;
+windows-x64) VERSION_JSON="$("$EXE_DIR/bench-llamacpp.exe" version)" ;;
+*) VERSION_JSON="$("$EXE_DIR/bench-llamacpp" version)" ;;
+esac
+[ -n "$VERSION_JSON" ] || fail "staged exe produced no version output"
+
+# `version` reports the features of the CPU module that actually got *loaded*
+# (llama_print_system_info queries each registered backend at runtime), so the
+# staged kit can be held against the build host's own capabilities. Anything the
+# hardware has and the kit doesn't is a variant that failed to build, failed to
+# stage, or scored itself out — the silent downgrade this check exists to catch.
+# Only ever asserts on features this host has, so an older runner stays valid.
+case "$TARGET" in
+macos-arm64)
+  for feat in DotProd:DOTPROD I8MM:MATMUL_INT8 SME:SME; do
+    sysctl_name="hw.optional.arm.FEAT_${feat%%:*}"
+    reported="${feat##*:}"
+    [ "$(sysctl -n "$sysctl_name" 2>/dev/null || echo 0)" = "1" ] || continue
+    case "$VERSION_JSON" in
+    *"$reported = 1"*) printf '   host has %s → kit reports %s = 1\n' "${feat%%:*}" "$reported" ;;
+    *) fail "host reports $sysctl_name=1 but the staged kit has $reported off —
+    the CPU variant build/dispatch is downgrading this machine.
+    system_info: $VERSION_JSON" ;;
+    esac
+  done
+  ;;
 esac
 
 # ---------------------------------------------------------------- bundle uv

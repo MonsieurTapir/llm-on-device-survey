@@ -19,13 +19,22 @@ llm-on-device-survey-<version>-<target>/
 - **`package.sh <target> [tag]`** — configure → build → stage → verify → zip
   (+ `.sha256`). Targets: `linux-x64`, `macos-arm64`, `windows-x64`. The
   toolchain comes from the environment (CI workflow or your shell); the
-  script installs nothing. It hard-fails if the CPU-variant / Vulkan module
-  set is short (a missing dlopen'd module is a silent capability downgrade on
-  someone's box, i.e. wrong data) and smoke-runs the staged exe.
-- **Build shape**: linux/windows use `GGML_BACKEND_DL` + `GGML_CPU_ALL_VARIANTS`
-  (+ Vulkan, shared libs, `$ORIGIN` rpath on linux) so one x86 binary is
-  *correct* on every microarch; macOS is a static Metal build with embedded
-  shaders (one arm64 microarch — no variant machinery).
+  script installs nothing. It hard-fails if the CPU-variant / GPU module set is
+  short (a missing dlopen'd module is a silent capability downgrade on someone's
+  box, i.e. wrong data), smoke-runs the staged exe, and on macOS holds the
+  features the staged kit reports against the ones the build host advertises via
+  `hw.optional.arm.FEAT_*` — hardware capability the kit can't use is the same
+  wrong data, arriving quietly.
+- **Build shape**: every target uses `GGML_BACKEND_DL` +
+  `GGML_CPU_ALL_VARIANTS` + shared libs, with `GGML_NATIVE=OFF` and an
+  `$ORIGIN` (linux) / `@loader_path` (macOS) rpath, so one binary per platform
+  is *correct* on every microarch instead of pinned to the build host's. Plus
+  Vulkan on linux/windows, Metal with embedded shaders on macOS. Apple silicon
+  needs the variant machinery as much as x86 does: ggml ships `apple_m1` /
+  `apple_m2_m3` / `apple_m4` CPU modules because i8mm arrives with M2 and SME
+  with M4, and without them clang targets its baseline arm64 CPU — an M1 code
+  path on every Mac. Selection is a runtime feature probe on all platforms, so a
+  wider kit never breaks an older machine.
 - **`run.sh` / `run.ps1`** — the contributor flow: exe smoke test → `uv sync`
   → `bench fetch` → `bench check` → `bench plan` → `bench run` →
   `bench bundle`. Every failure message says what to do next; every step
