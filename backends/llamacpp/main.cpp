@@ -291,20 +291,6 @@ Task load_task(const fs::path & task_path) {
     return task;
 }
 
-// The same task with generation clamped to one token and the expect checks
-// dropped: the warmup shape-walk wants the task's *prompts* (they decide the
-// ubatch split, and so which pipelines compile), not its decode budget or its
-// verdict.
-Task single_token_task(const Task & task) {
-    Task warm = task;
-    for (Message & message : warm.messages) {
-        if (!message.is_assistant()) continue;
-        message.generate_tokens = 1;
-        message.expect.clear();
-    }
-    return warm;
-}
-
 // Vacuously true when the expect list is empty.
 bool passes_expect(const std::string & completion, const std::vector<std::string> & expect) {
     if (expect.empty()) return true;
@@ -582,26 +568,44 @@ class Session {
     // same lazy pattern applies, so a warmup that misses a width hands that
     // width's compile to the first span that uses it.
     //
-    // Warm every width the measured passes run, therefore: a full ubatch from an
-    // empty cache, a second full one over existing history, a half ubatch (the
-    // sweep's subdivided chunks), and a short ragged one (the gate's prompts, and
-    // any job whose prompt doesn't divide evenly into ubatches) — then a
-    // single-token decode. `task`, when the caller has one, is walked once more
-    // with generation clamped to one token, which covers its exact prompt shapes.
-    // The closing sync leaves no device work in flight to land in the first
-    // measured span.
+    // Which widths a caller has to warm depends on what protects its numbers.
     //
-    // Timed into the `load` span. This is first-touch setup, not inference: with
-    // the shader cache pointed at a fresh directory it is a deterministic measure
-    // of what this driver costs to compile this model's pipeline set.
-    void warmup(json & load_phases, const Task * task = nullptr) {
+    // `Shapes` — the sweep. It measures one instrumented pass and has no median to
+    // hide behind, so every width that pass will run is built here: a full ubatch
+    // from an empty cache, a second full one over existing history, a half ubatch
+    // (the sweep's subdivided chunks), and a short ragged one (the gate's prompts,
+    // and any job whose prompt doesn't divide evenly into ubatches) — then a
+    // single-token decode.
+    //
+    // `Minimal` — the job. One token in, one token out: enough to force the context
+    // allocation and the first graph, and no more. Its spawn inherits the cell's
+    // shader cache already populated by the sweep, so there are no pipelines left
+    // to compile; walking the widths again would only prefill ~2.5 ubatches, and
+    // walking the task's own prompts (which this used to do) another full prompt on
+    // top. That is inference, not setup — a cost no deployment pays, landing in a
+    // span the report reads as load. A width this pass skips is paid by the first
+    // iteration, out of `iters` of them, so it lands in the job's `max` and not its
+    // `p50`.
+    //
+    // The closing sync leaves no device work in flight to land in the first
+    // measured span. Timed into the `load` span either way: this is first-touch
+    // setup. Note that even under `Shapes` the span is not a clean compile
+    // measurement — the width walk is real prefill, and on most lanes the bulk of
+    // the number. The analysis nets that term out using the lane's own prefill cost
+    // function; see `_compile_seconds` in analysis/bench_analysis/site.py.
+    enum class Warmup { Shapes, Minimal };
+
+    void warmup(json & load_phases, Warmup mode = Warmup::Shapes) {
         load_phases.push_back(load_event(
             "warmup", time_span([&] {
                 // kSweepChunk == n_ubatch, so n_ubatch/2 is the subdivision width.
                 const int ubatch = std::max(1, static_cast<int>(context_params_.n_ubatch));
-                const std::array<int, 4> widths{ubatch, ubatch, std::max(1, ubatch / 2),
-                                                kWarmupRaggedTokens};
-                int                      depth = 0;
+                const std::vector<int> widths =
+                    mode == Warmup::Shapes
+                        ? std::vector<int>{ubatch, ubatch, std::max(1, ubatch / 2),
+                                           kWarmupRaggedTokens}
+                        : std::vector<int>{1};
+                int depth = 0;
                 for (const int wanted : widths) {
                     // Leave a slot for the decode below; a context too tight for a
                     // width simply skips it rather than losing the whole spawn.
@@ -618,11 +622,6 @@ class Session {
                 if (llama_decode(context_.get(), llama_batch_get_one(&generated_token, 1)) != 0)
                     throw BenchError("warmup decode failed");
                 llama_synchronize(context_.get());
-                if (task) {
-                    bool ignored_health = true; // health is decided by timed turns, not warmup
-                    run_iteration(single_token_task(*task), ignored_health);
-                    llama_synchronize(context_.get());
-                }
             })));
         clear_kv_cache();
     }
@@ -973,7 +972,7 @@ int cmd_run(const Arguments & args) {
     json    load_phases = json::array();
     Session session =
         Session::open(args.model, device, {task.context_length}, threads, load_phases);
-    session.warmup(load_phases, &task);
+    session.warmup(load_phases, Session::Warmup::Minimal);
 
     // Timed iterations (≤K). Iteration 1 always completes; later ones are skipped
     // once the soft deadline is hit — every emitted iteration is a

@@ -337,7 +337,7 @@
             "cold_start_ms": { "$ref": "#/$defs/nullableStat", "description": "First-touch load (cold page cache): model-load + context-init, n=1." },
             "model_load_ms": { "$ref": "#/$defs/stat", "description": "Warm load phase — read/mmap weights and place on device." },
             "context_init_ms": { "$ref": "#/$defs/stat", "description": "Warm load phase — allocate KV cache / compute graph / context." },
-            "warmup_ms": { "$ref": "#/$defs/stat", "description": "One-time kernel/JIT warm pass, once per process." },
+            "warmup_ms": { "$ref": "#/$defs/stat", "description": "One-time warm pass, once per process — for the job, one token in and one token out, enough to force the context allocation. Its spawn inherits the cell's shader cache already populated by the sweep, so there is nothing left to compile; the sweep's own warmup (sweep.warmup_ms) is the one that walks every dispatch width. Not comparable with traces recorded before the job's warm pass was cut back to a single token, where it also walked the widths and the task's own prompts." },
             "ttft_ms": { "$ref": "#/$defs/stat" },
             "decode_tps": { "$ref": "#/$defs/stat" },
             "prefill_tps": { "$ref": "#/$defs/nullableStat" },
