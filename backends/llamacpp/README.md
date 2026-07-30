@@ -27,6 +27,14 @@ afterward); pass `-DLLAMACPP_SOURCE_DIR=<path>` (e.g. a
 output is the exe named in [`backend.toml`](backend.toml) —
 **`build/bench-llamacpp`** — keep the two in sync.
 
+[`patches/`](patches/) carries local fixes applied to the fetched llama.cpp
+tree, in listed order, by [`patches/apply.cmake`](patches/apply.cmake). Each
+file states the bug, the evidence, and what retires it — read one before
+touching it. They are deltas on the compatibility anchor, so the list stays
+short: drop a patch as soon as the pin moves past it. A patch is applied at
+populate time only — delete the build directory to re-patch — and only to the
+*fetched* tree, never to a `LLAMACPP_SOURCE_DIR` working copy.
+
 Format with `clang-format -i main.cpp`. Validate conformance from the repo
 root: `uv run --project harness bench check --backend llamacpp --models models`.
 

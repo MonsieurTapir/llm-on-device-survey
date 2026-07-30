@@ -1,0 +1,85 @@
+Subject: vulkan: don't request VK_KHR_shader_bfloat16 the driver doesn't expose
+
+ggml-vulkan derives two independent bf16 facts and conflates them at device
+creation:
+
+  * `bfloat16_support` — VK_KHR_shader_bfloat16 is in the physical device's
+    extension list (ggml-vulkan.cpp, the extension-enumeration loop).
+  * `device->coopmat_bf16_support` — VK_KHR_cooperative_matrix reports a
+    BF16 x BF16 -> F32 subgroup configuration.
+
+The second is set from cooperative-matrix properties alone, and then pushes
+"VK_KHR_shader_bfloat16" into the device extension list on its own. A driver
+that reports BF16 matrix configurations without exposing the bfloat16 shader
+extension therefore fails `vkCreateDevice` outright:
+
+    loader_validate_device_extensions: Device extension VK_KHR_shader_bfloat16
+        not supported by selected physical device or enabled layers.
+    vkCreateDevice: Failed to validate extensions in list
+    vk::PhysicalDevice::createDevice: ErrorExtensionNotPresent
+
+Every Vulkan lane on such a machine is unusable — and the failure is not
+survivable in-process: the caught exception unwinds into ggml's teardown of a
+half-initialized device, and the Vulkan loader aborts the process (0xC0000409)
+when `vkDestroyFence` is called with a device that was never created.
+
+Observed on an AMD Radeon 760M (RDNA3 iGPU), driver 32.0.13046.7002 (May 2025),
+Windows 11 — the device banner states the contradiction plainly:
+
+    ggml_vulkan: 0 = AMD Radeon 760M Graphics (AMD proprietary driver) | uma: 1
+        | fp16: 1 | bf16: 0 | ... | matrix cores: KHR_coopmat
+
+The capability, not just the extension request, is what has to be gated: only
+suppressing the `push_back` would leave `coopmat_bf16_support` set and build
+bf16 cooperative-matrix shaders against an extension that was never enabled.
+So this clears the flag next to the existing GGML_VK_DISABLE_BFLOAT16 opt-out,
+which is the same suppression by a different trigger.
+
+Machines that do expose VK_KHR_shader_bfloat16 keep bf16 cooperative matrices
+and are bit-for-bit unaffected, so this changes no published measurement.
+
+Verified — RTX 5080 + RDNA2 iGPU, Linux, `-DGGML_VULKAN=ON`. glslc there reports
+COOPMAT / COOPMAT2 / BFLOAT16 support, so the `#if` region this sits in is
+actually compiled. With ggml fault-injected into the 760M's believed state (the
+extension hidden from its detection loop, a BF16 coopmat configuration
+reported), the extension list handed to `vkCreateDevice`:
+
+    unpatched   12 extensions, includes VK_KHR_shader_bfloat16   <- while bf16: 0
+    patched     11 extensions, excludes it                       <- same bf16: 0
+
+A device that genuinely has the extension is untouched: `probe` stays valid,
+`bf16: 1`, same list.
+
+Not reproduced end-to-end off the affected hardware: the loader only rejects
+when the *driver* lacks the extension, and neither local GPU can be that device
+(the 5080 has it for real; the RDNA2 iGPU reports no cooperative matrix at all,
+so it never sets the flag). On the 760M itself, `GGML_VK_DISABLE_BFLOAT16=1` —
+the identical assignment three lines above this gate — takes `bench check` from
+"`probe` produced no valid events" to a full pass (probe 1.7 TFLOP/s on
+vulkan:0, sweep and run healthy). This patch is that behaviour without the
+contributor having to know the env var exists.
+
+Upstream status: present on master as of 2026-07-29 (same unguarded push_back).
+Not submitted upstream — llama.cpp's AGENTS.md does not accept
+predominantly AI-generated pull requests, and this patch was written by an
+agent. Drop this file and the patches/ wiring in CMakeLists.txt if the pin
+moves to a commit that fixes it.
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index e7d04634b..0d3375780 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -6065,6 +6065,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
+             if (getenv("GGML_VK_DISABLE_BFLOAT16")) {
+                 device->coopmat_bf16_support = false;
+             }
++            // A driver can report BF16 cooperative-matrix configurations without
++            // exposing VK_KHR_shader_bfloat16 itself. Leaving the flag set pushes
++            // that extension into vkCreateDevice below, which then fails the whole
++            // device with VK_ERROR_EXTENSION_NOT_PRESENT.
++            if (!bfloat16_support) {
++                device->coopmat_bf16_support = false;
++            }
+         }
+
+         if (device->coopmat_support) {

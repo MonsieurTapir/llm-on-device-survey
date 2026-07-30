@@ -68,9 +68,26 @@ if(LLAMACPP_SOURCE_DIR)
   set(LLAMACPP_SRC_INTERNAL "${LLAMACPP_SOURCE_DIR}/src")
 else()
   message(STATUS "bench-llamacpp: fetching llama.cpp @ ${LLAMACPP_GIT_TAG}")
+  # Local fixes to the pinned tree, applied in listed order. Each patch file
+  # documents the bug it fixes and what would replace it upstream; every one is a
+  # deliberate delta on the compatibility anchor, so keep the list short and
+  # delete entries as the pin moves past them.
+  #
+  # These apply to the *fetched* tree only. A LLAMACPP_SOURCE_DIR checkout is
+  # yours to manage — we don't write into a working copy we didn't create, so a
+  # local-checkout build carries whatever that tree already has.
+  #
+  # FetchContent patches at populate time only: after editing anything under
+  # patches/, delete the build directory so the tree is re-populated.
+  set(LLAMACPP_PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/0001-vulkan-gate-bf16-coopmat-on-the-bfloat16-extension.patch")
+  find_package(Git REQUIRED)
   FetchContent_Declare(llamacpp
     GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
-    GIT_TAG        ${LLAMACPP_GIT_TAG})
+    GIT_TAG        ${LLAMACPP_GIT_TAG}
+    PATCH_COMMAND  ${CMAKE_COMMAND} -DGIT=${GIT_EXECUTABLE} -DSRC=<SOURCE_DIR>
+                   "-DPATCHES=${LLAMACPP_PATCHES}"
+                   -P "${CMAKE_CURRENT_SOURCE_DIR}/patches/apply.cmake")
   FetchContent_MakeAvailable(llamacpp)
   set(LLAMACPP_SRC_INTERNAL "${llamacpp_SOURCE_DIR}/src")
 endif()
