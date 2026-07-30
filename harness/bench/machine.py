@@ -48,6 +48,23 @@ def _cpu_label() -> str:
             ).stdout.strip()
         except Exception:  # noqa: BLE001
             pass
+    if platform.system() == "Windows":
+        # platform.processor() is PROCESSOR_IDENTIFIER here — a CPUID dump
+        # ("AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"), not a brand
+        # string. The registry carries the brand string the other platforms report,
+        # and downstream everything reads it: the submission name, and whether a
+        # GPU lane is the host chip's own (the iGPU test looks for the GPU's name
+        # inside this string).
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            ) as key:
+                return str(winreg.QueryValueEx(key, "ProcessorNameString")[0])
+        except OSError:
+            pass
     return platform.processor() or platform.machine() or "unknown"
 
 
@@ -129,7 +146,7 @@ def info(name: str | None = None) -> dict:
     return {
         "host": name or platform.node() or "unknown",
         "os": _OS.get(platform.system(), platform.system().lower()),
-        "cpu": re.sub(r"\s+", " ", _cpu_label()),
+        "cpu": re.sub(r"\s+", " ", _cpu_label()).strip(),
         "cpu_cores": psutil.cpu_count(logical=False) or psutil.cpu_count() or 1,
         "cpu_threads": psutil.cpu_count() or 1,
         "gpus": sampling.gpu_names(),

@@ -19,7 +19,7 @@ import pytest
 from test_aggregate import _healthy_cell, _raw
 
 from bench import aggregate
-from bench.commands.bundle import cmd_bundle, submission_name
+from bench.commands.bundle import cmd_bundle, gpu_devices, submission_name
 from bench.commands.ingest import cmd_ingest
 
 
@@ -88,6 +88,37 @@ def test_submission_name_drops_vendor_noise():
     assert submission_name({"cpu": "Apple M5 Pro",
                             "gpus": ["Apple M5 Pro"]}) == "apple-m5-pro"
     assert submission_name({"cpu": "", "gpus": []}) == "unknown-machine"
+
+
+def test_submission_name_falls_back_to_the_backends_gpu():
+    """NVML is the machine block's only GPU probe, so a non-NVIDIA box names no GPU
+    there — the lanes the backend ran do."""
+    machine = {"cpu": "AMD Ryzen 9 9950X 16-Core Processor", "gpus": []}
+    assert submission_name(machine, ["Intel Arc B580"]) == "ryzen-9-9950x-arc-b580"
+
+
+def test_submission_name_says_the_machine_once():
+    """The GPU half must add something. These are the device strings the published
+    submissions actually carry — an integrated lane names silicon the CPU string
+    already has, or names no model at all, and either way the name is the CPU's."""
+    for cpu, device, expected in [
+        ("AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics", "AMD Radeon 760M Graphics",
+         "ryzen-5-pro-230"),
+        ("AMD Ryzen 7 255 w/ Radeon 780M Graphics", "AMD Radeon Graphics (RADV PHOENIX)",
+         "ryzen-7-255"),
+        ("Intel(R) Core(TM) Ultra 5 125U", "Intel(R) Graphics (MTL)", "core-ultra-5-125u"),
+        ("Apple M5 Pro", "Apple M5 Pro", "apple-m5-pro"),
+    ]:
+        assert submission_name({"cpu": cpu, "gpus": []}, [device]) == expected
+
+
+def test_gpu_devices_ignores_cpu_lanes():
+    doc = {
+        "probes": [{"provider": "cpu:0", "device": "AMD Ryzen 5 PRO 230  "},
+                   {"provider": "vulkan:0", "device": "AMD Radeon 760M Graphics"}],
+        "runs": [{"provider": "vulkan:0", "device": "AMD Radeon 760M Graphics"}],
+    }
+    assert gpu_devices(doc) == ["AMD Radeon 760M Graphics"]
 
 
 def test_ingest_rejects_path_traversal(tmp_path):
