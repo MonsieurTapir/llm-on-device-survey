@@ -81,5 +81,5 @@ index e7d04634b..0d3375780 100644
 +                device->coopmat_bf16_support = false;
 +            }
          }
-
+ 
          if (device->coopmat_support) {
