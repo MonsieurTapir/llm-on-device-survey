@@ -7,7 +7,7 @@ build products staged exactly where `backend.toml` already points
 packaged-layout special case, and the contributor needs nothing preinstalled.
 
 ```
-bench-<tag>-<target>/
+llm-on-device-survey-<version>-<target>/
 ├── run.sh | run.bat + run.ps1    the only thing a contributor touches
 ├── README.txt                     ← contributor-readme.txt
 ├── bin/uv[.exe]                   pinned, checksum-verified at package time

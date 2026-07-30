@@ -71,11 +71,13 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: bench-${{ matrix.target }}
+          name: llm-on-device-survey-${{ matrix.target }}
           path: |
-            dist/bench-*.tar.gz
-            dist/bench-*.zip
-            dist/bench-*.sha256
+            dist/llm-on-device-survey-*.tar.gz
+            dist/llm-on-device-survey-*.zip
+            dist/llm-on-device-survey-*.sha256
+          # A glob that stops matching package.sh's names must fail the job, not
+          # publish a release with nothing attached.
           if-no-files-found: error
 
       - name: Attach to release
@@ -83,6 +85,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/bench-*.tar.gz
-            dist/bench-*.zip
-            dist/bench-*.sha256
+            dist/llm-on-device-survey-*.tar.gz
+            dist/llm-on-device-survey-*.zip
+            dist/llm-on-device-survey-*.sha256

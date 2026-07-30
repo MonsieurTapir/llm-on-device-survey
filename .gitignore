@@ -11,10 +11,10 @@ backends/*/build/
 backends/*/build-dist/
 dist/
 # kits unpacked at the repo root by the run.sh/run.ps1 bootstrap
-/bench-*/
-/bench-*.tar.gz
-/bench-*.zip
-/bench-*.sha256
+/llm-on-device-survey-*/
+/llm-on-device-survey-*.tar.gz
+/llm-on-device-survey-*.zip
+/llm-on-device-survey-*.sha256
 /submission-*.tar.gz
 
 # ─── Runner (uv) ───

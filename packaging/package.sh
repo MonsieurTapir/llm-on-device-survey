@@ -33,7 +33,10 @@ if [ "$TARGET" = "windows-x64" ]; then
 else
   BUILD="$REPO/backends/llamacpp/build-dist/$TARGET"
 fi
-STAGE_NAME="bench-$TAG-$TARGET"
+# Artifact name: the project, then the version, then the platform. The tag is
+# the compatibility anchor everywhere else ("v1.0.1"), but the leading v reads
+# as noise in a file name, so the artifact carries the bare version.
+STAGE_NAME="llm-on-device-survey-${TAG#v}-$TARGET"
 DIST="$REPO/dist"
 STAGE="$DIST/$STAGE_NAME"
 

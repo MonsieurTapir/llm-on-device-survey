@@ -17,7 +17,8 @@ if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
 $tag = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
 if (-not $tag) { Fail "cannot resolve the latest release - check your network connection" }
 
-$kit = "bench-$tag-windows-x64"
+# Must match packaging/package.sh's STAGE_NAME — the release URL is built from it.
+$kit = "llm-on-device-survey-$($tag -replace '^v', '')-windows-x64"
 if (-not (Test-Path $kit)) {
   $base = "https://github.com/$repo/releases/download/$tag"
   Write-Host "== downloading $kit.zip"

@@ -32,7 +32,8 @@ TAG=$(http "https://api.github.com/repos/$REPO_SLUG/releases/latest" |
   sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
 [ -n "$TAG" ] || fail "cannot resolve the latest release — check your network connection"
 
-KIT="bench-$TAG-$TARGET"
+# Must match packaging/package.sh's STAGE_NAME — the release URL is built from it.
+KIT="llm-on-device-survey-${TAG#v}-$TARGET"
 if [ ! -d "$KIT" ]; then
   BASE="https://github.com/$REPO_SLUG/releases/download/$TAG"
   echo "== downloading $KIT.tar.gz"

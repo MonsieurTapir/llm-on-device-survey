@@ -1,4 +1,4 @@
-# On-device LLM inference benchmark
+# On-device LLM inference survey
 
 A harness that measures the cost of running small LLMs on consumer hardware
 with [llama.cpp](https://github.com/ggml-org/llama.cpp). Per device it
