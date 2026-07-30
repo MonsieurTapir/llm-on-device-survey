@@ -51,11 +51,17 @@ _SHADER_CACHE_VARS = {
 def shader_cache_control() -> str:
     """Whether this platform lets us pin the shader cache location.
 
-    macOS keeps Metal's pipeline cache under OS control with no documented path
-    or disable knob, so a Mac warmup span is cold or warm depending on machine
-    history we can't see or set. Recorded in the results so a reader knows which
-    kind of number they're looking at rather than comparing the two."""
-    return "unavailable" if sys.platform == "darwin" else "redirected"
+    Every knob above is a Unix one, so the answer is about which drivers honour
+    them. macOS keeps Metal's pipeline cache under OS control with no documented
+    path or disable knob. The Windows vendor drivers are not Mesa and ignore all
+    three — an AMD laptop reporting "AMD Radeon 760M Graphics" (the proprietary
+    driver's name, where linux would say "RADV PHOENIX") left the pinned
+    directory empty across an entire run, down to the fixed pipeline set every
+    linux lane deposits at registry init. On both, a warmup span is cold or warm
+    depending on machine history we can't see or set. Recorded in the results so
+    a reader knows which kind of number they're looking at rather than comparing
+    the two."""
+    return "unavailable" if sys.platform in ("darwin", "win32") else "redirected"
 
 
 def _shader_cache_env(cache_dir: Path | None) -> dict[str, str]:

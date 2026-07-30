@@ -137,10 +137,12 @@
     measures it once per machine and model, on the lane that loaded the file first,
     so it appears on that lane and is not spread across the ones that later read
     the same warm file. CPU lanes compile nothing for inference and are absent, so
-    a CPU-only selection leaves this chart empty. A lane whose platform exposes no
-    shader-cache path says so instead of showing a number: the compilation
-    happened, it just cannot be reported from a known-empty state, and it does not
-    compare across machines.</p>
+    a CPU-only selection leaves this chart empty. Some platforms pin no shader
+    cache at all — macOS keeps Metal's under OS control, and the Windows vendor
+    drivers honour none of the variables the harness sets — so there the driver may
+    have handed back pipelines the machine built earlier. Those spans are marked
+    with an asterisk: still what that launch cost, but a floor of unknown tightness
+    rather than a cold compile, and not comparable across machines.</p>
   <div class="island" data-spec="launch"></div>
 </section>
 {% endif %}

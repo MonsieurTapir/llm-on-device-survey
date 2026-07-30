@@ -397,13 +397,16 @@ def _fixture_launch_rows() -> dict[tuple[str, str, str], dict]:
 
 def test_compilation_is_claimed_only_where_it_was_measured_from_empty():
     """The 3090's cuda lane compiled 5.5 MB of pipelines into a cache the harness
-    pinned, so its warmup span is a real from-scratch compile. The M1's Metal lane
-    exposes no cache path at all: the compile happened, the number does not compare,
-    and the row says that instead of printing seconds."""
+    pinned, so its warmup span is a real from-scratch compile and the number stands
+    unqualified. The M1's Metal lane exposes no cache path at all: that launch still
+    cost what it cost, so the span is reported and marked — what we don't know is
+    how much the machine had already built, which qualifies the number rather than
+    licensing the claim that nothing compiled."""
     rows = _fixture_launch_rows()
 
     cuda = rows[("RTX 3090 · cuda", "qwen3-4B", "pipeline compilation")]
     assert cuda["seconds"] == 1.83 and cuda["note"] is None
+    assert cuda["label"] == "1.8"
     assert cuda["mb"] == 5.5 and cuda["cache"] == "redirected"
     # How much was compiled and out of which cache belong to the compile alone: a
     # cold read of the weights compiles nothing, so it carries neither.
@@ -412,8 +415,9 @@ def test_compilation_is_claimed_only_where_it_was_measured_from_empty():
     assert cold["mb"] is None and cold["cache"] is None
 
     mac = rows[("Apple M1 Max · mtl", "gemma4-E2B", "pipeline compilation")]
-    assert mac["seconds"] is None
-    assert mac["note"] == "shader cache not pinnable here — not measured"
+    assert mac["seconds"] == 0.99 and mac["note"] is None
+    assert mac["label"] == f"1.0{site.UNVERIFIED_MARK}"
+    assert mac["cache"] == "unavailable"
     assert mac["mb"] is None  # nothing to report a size for either
     # the lane stays on the chart because its cold first touch is a number
     assert rows[("Apple M1 Max · mtl", "gemma4-E2B", "cold first touch")]["seconds"] == 5.0
@@ -453,7 +457,8 @@ def test_launch_chart_groups_two_phases_on_one_lane_row(tmp_path):
     reader meets it before the numbers."""
     spec = _island(_build(tmp_path), "launch")
     assert spec["title"]["text"] == "one-time first launch (s)"
-    assert "empty shader cache" in spec["title"]["subtitle"]
+    subtitle = " ".join(spec["title"]["subtitle"])  # split in two so it cannot clip
+    assert "empty shader cache" in subtitle
 
     compile_bar, cold_bar, label, headroom, note = spec["layer"]
     bar = compile_bar
@@ -485,7 +490,10 @@ def test_launch_chart_groups_two_phases_on_one_lane_row(tmp_path):
     assert opacity["legend"]["orient"] == "bottom"
     for layer in (bar, label, note):  # every mark sits in its own phase row
         assert layer["encoding"]["yOffset"]["field"] == "phase"
-    assert label["encoding"]["text"]["format"] == ".1f"
+    # The row formats its own label: only it knows whether the span earned the mark
+    # that says its shader cache could not be pinned.
+    assert label["encoding"]["text"] == {"field": "label"}
+    assert site.UNVERIFIED_MARK in subtitle
     assert "datum.seconds" in headroom["transform"][0]["calculate"]
     assert note["transform"] == [{"filter": "datum.note !== null"}]
     assert note["mark"]["fontStyle"] == "italic"
@@ -528,10 +536,11 @@ def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
     # depths, so this is the one number that can rule a configuration out entirely.
     assert cuda["n_ctx_train"] == 4096
 
-    # Metal exposes no pinnable shader cache, so there is no first-launch number to
-    # add to a batch — absent, not zero (same rule as the first-launch chart).
+    # Metal exposes no pinnable shader cache, so this first launch is a floor of
+    # unknown tightness rather than a cold compile — still a cost a batch pays, and
+    # reported as one (same rule as the first-launch chart).
     mac = records[("Apple M1 Max · mtl", "gemma4-E2B")]
-    assert mac["first_launch_s"] is None
+    assert mac["first_launch_s"] == 0.99
     assert mac["fit"]["w"] == 512 and mac["kv_max"] == 2048
 
     # Nothing measured a cost function: no bar could be drawn from it, and the

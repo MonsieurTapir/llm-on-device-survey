@@ -984,46 +984,64 @@ def _task_spec(controls: list[dict], lanes: list[str]) -> dict:
 # group order and its opacity domain, so the solid bar is always the compile.
 LAUNCH_PHASES = ("pipeline compilation", "cold first touch")
 
-# What a lane says where there is no compile number. The two facts are separate:
-# `shader_bytes` says whether anything was compiled, `shader_cache` says whether
-# the compile started from a known-empty cache — the only state the duration means
-# anything in. The cache answers first: on a platform that pins nothing, the byte
-# count is about whatever the machine had already built.
+# What a lane says where there is no compile number. Only one state supports the
+# claim that nothing was compiled: the harness pinned an empty cache and the run
+# left it empty. Where the cache was not pinnable we know nothing about what was
+# built beforehand, so the span is reported and marked rather than explained away.
 LAUNCH_NOTES = {
-    "cache": "shader cache not pinnable here — not measured",
     "nothing": "nothing compiled",
     "absent": "not measured",
 }
 
+# Marks a first-launch span measured against a cache we could not pin, on the bar
+# and in the subtitle that explains it.
+UNVERIFIED_MARK = "*"
+
 
 def _compile_seconds(row) -> float | None:
-    """One run's warmup span as a first-launch pipeline compilation, where that is
-    what it is — otherwise None.
+    """One run's warmup span as a first-launch pipeline compilation — the span a
+    user waits through the first time they launch this model on this lane.
 
-    Three things have to hold. The lane is not a CPU lane (the GPU backend leaves a
-    fixed, model-independent pipeline set behind at registry init, so a CPU lane's
-    non-zero `shader_bytes` is that artifact and none of its warmup is compilation).
-    Something was compiled (`shader_bytes > 0`). And the harness could pin the shader
-    cache (`shader_cache == "redirected"`), which is the only state in which the
-    duration is a from-scratch compile rather than a partial cache hit."""
-    if row.family == "cpu" or row.shader_cache != "redirected":
+    Not a CPU lane: the GPU backend leaves a fixed, model-independent pipeline set
+    behind at registry init, so a CPU lane's non-zero `shader_bytes` is that
+    artifact and none of its warmup is compilation.
+
+    Where the harness pinned the cache (`shader_cache == "redirected"`) the span is
+    a from-scratch compile and an empty cache afterwards means the run genuinely
+    compiled nothing — the one state in which that can be said. Where it could not
+    (macOS, windows) the span is still what the launch cost, but the machine may
+    have handed the driver pipelines it built earlier, so the number is a floor of
+    unknown tightness rather than a cold compile. `_launch_rows` marks it; refusing
+    to report it would only replace an uncertain number with a wrong claim."""
+    if row.family == "cpu":
         return None
-    shader_bytes = _plain(getattr(row, "shader_bytes", None), 0)
-    if not shader_bytes:
+    if row.shader_cache == "redirected" and not _plain(getattr(row, "shader_bytes", None), 0):
         return None
     return _seconds(getattr(row, "shader_warmup_ms", None))
+
+
+def _launch_label(seconds: float | None, pinned: bool) -> str | None:
+    """The number printed at the end of a bar, marked where the span was measured
+    against a cache the harness could not pin. Carried as text rather than formatted
+    in the spec, because only the row knows whether it earned the mark."""
+    if seconds is None:
+        return None
+    return f"{seconds:.1f}" if pinned else f"{seconds:.1f}{UNVERIFIED_MARK}"
 
 
 def _launch_rows(df: pd.DataFrame) -> list[dict]:
     """Rows for the first-launch chart: up to two phases per (lane, model).
 
     *pipeline compilation* is the sweep's warmup span on a lane that builds compute
-    pipelines from source — so it is claimed only where the run compiled something
-    (`shader_bytes > 0`) from a cache the harness could pin (`shader_cache ==
-    'redirected'`); otherwise the row carries the reason instead of a number. CPU
-    lanes emit no compile row at all: the GPU backend leaves a fixed, model-
-    independent pipeline set behind at registry init, so their non-zero
-    `shader_bytes` is that artifact and none of their warmup is compilation.
+    pipelines from source. It reads as a cold from-scratch compile only where the
+    harness pinned the cache (`shader_cache == 'redirected'`); there, an empty cache
+    afterwards means nothing was compiled and the row says so instead of printing
+    seconds. Where the cache could not be pinned the span is reported and marked
+    (see `_launch_label`) — that platform tells us nothing about what it had built
+    already, which is a reason to qualify the number, not to withhold it. CPU lanes
+    emit no compile row at all: the GPU backend leaves a fixed, model-independent
+    pipeline set behind at registry init, so their non-zero `shader_bytes` is that
+    artifact and none of their warmup is compilation.
 
     *cold first touch* is the job's `cold_start_ms`, which the harness measures once
     per machine and model file and attributes to the first cell that scored it — so
@@ -1047,19 +1065,20 @@ def _launch_rows(df: pd.DataFrame) -> list[dict]:
         cell = []
         if gpu:
             pinned = r.shader_cache == "redirected"
-            compiled = shader_bytes is not None and shader_bytes > 0
             value = _compile_seconds(r)
             note = None if value is not None else LAUNCH_NOTES[
-                "cache" if not pinned else "nothing" if not compiled else "absent"]
+                "nothing" if pinned else "absent"]
             # How much was compiled and out of which cache describe *this* phase and
             # only this one — a cold read of the weights compiles nothing.
             cell.append({**base, "phase": LAUNCH_PHASES[0], "seconds": value,
                          "note": note, "cache": r.shader_cache,
+                         "label": _launch_label(value, pinned),
                          "mb": _plain(shader_bytes / 1e6) if shader_bytes else None})
         cold = _seconds(getattr(r, "cold_start_ms_p50", None))
         if cold is not None:
             cell.append({**base, "phase": LAUNCH_PHASES[1], "seconds": cold,
-                         "note": None, "cache": None, "mb": None})
+                         "note": None, "cache": None, "mb": None,
+                         "label": _launch_label(cold, True)})
         if any(row["seconds"] is not None for row in cell):
             rows += cell
     return rows
@@ -1123,9 +1142,12 @@ def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> di
     return {
         "$schema": VL_SCHEMA,
         "title": {"text": "one-time first launch (s)", "anchor": "start",
-                  "subtitle": "compilation measured from an empty shader cache; "
-                              "comparable across machines only where the cache "
-                              "could be pinned",
+                  # Two lines, because one runs past the container and clips.
+                  "subtitle": ["compilation measured from an empty shader cache "
+                               "where the platform lets us pin one",
+                               f"{UNVERIFIED_MARK} it pins none here (macOS, "
+                               f"windows): the span may include pipelines built "
+                               f"earlier, so it is a floor"],
                   "fontSize": 12, "subtitleFontSize": 10},
         "data": {"values": rows},
         "params": _params(controls),
@@ -1137,7 +1159,7 @@ def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> di
              "mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10},
              "encoding": {"y": y, "yOffset": offset,
                           "x": {"field": "seconds", "type": "quantitative"},
-                          "text": {"field": "seconds", "format": ".1f"}}},
+                          "text": {"field": "label"}}},
             {"transform": [{"calculate": "datum.seconds * 1.16", "as": "headroom"}],
              "mark": {"type": "point", "opacity": 0},
              "encoding": {"y": y, "x": {"field": "headroom",
