@@ -8,6 +8,9 @@ import re
 import shutil
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
 from bench_analysis import site
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -70,3 +73,52 @@ def test_hostile_submission_strings_never_execute(tmp_path):
     assert "<script>alert(1)" not in h  # never as live markup
     # The payload IS present — as inert, escaped text in both contexts.
     assert "\\u003c/script\\u003e" in h or "&lt;/script&gt;" in h
+
+
+# Every device string the shelf has produced so far, with the lane label and band
+# it must resolve to. The driver names a GPU only sometimes; when it doesn't, the
+# lane wears the chip it lives in.
+DEVICES = [
+    # (device, machine cpu, family) → (lane chip, device class)
+    ("Apple M5 Pro", "Apple M5 Pro", "cpu", "Apple M5 Pro", "CPU"),
+    ("Apple M5 Pro", "Apple M5 Pro", "mtl", "Apple M5 Pro", "integrated GPU"),
+    ("Intel(R) Core(TM) Ultra 5 125U", "Intel(R) Core(TM) Ultra 5 125U", "cpu",
+     "Core Ultra 5 125U", "CPU"),
+    ("Intel(R) Graphics (MTL)", "Intel(R) Core(TM) Ultra 5 125U", "vulkan",
+     "Core Ultra 5 125U iGPU", "integrated GPU"),
+    ("AMD Ryzen 7 255 w/ Radeon 780M Graphics", "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+     "cpu", "Ryzen 7 255", "CPU"),
+    ("AMD Radeon Graphics (RADV PHOENIX)", "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+     "vulkan", "Ryzen 7 255 iGPU", "integrated GPU"),
+    ("AMD Radeon 760M Graphics (RADV PHOENIX)",
+     "AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics", "vulkan",
+     "Ryzen 5 PRO 230 iGPU", "integrated GPU"),
+    ("AMD Ryzen 9 9950X 16-Core Processor", "AMD Ryzen 9 9950X 16-Core Processor", "cpu",
+     "Ryzen 9 9950X", "CPU"),
+    # the desktop APU's iGPU: RADV reports the CPU's own brand string
+    ("AMD Ryzen 9 9950X 16-Core Processor (RADV RAPHAEL_MENDOCINO)",
+     "AMD Ryzen 9 9950X 16-Core Processor", "vulkan", "Ryzen 9 9950X iGPU",
+     "integrated GPU"),
+    ("NVIDIA GeForce RTX 5080", "AMD Ryzen 9 9950X 16-Core Processor", "vulkan",
+     "RTX 5080", "discrete GPU"),
+    ("NVIDIA GeForce RTX 3090", "AMD Ryzen 9 5950X 16-Core Processor", "cuda",
+     "RTX 3090", "discrete GPU"),
+]
+
+
+@pytest.mark.parametrize(("device", "cpu", "family", "chip", "klass"), DEVICES)
+def test_lane_identity(device, cpu, family, chip, klass):
+    assert site._lane_chip(device, cpu, family) == chip
+    assert site._dev_class(device, cpu, family) == klass
+
+
+def test_lanes_stay_distinct_across_identical_machines():
+    """Two of the same laptop must not pool into one lane."""
+    df = pd.DataFrame({
+        "provider": ["vulkan:0", "vulkan:0"], "machine": ["nuc-a", "nuc-b"],
+        "device": ["Intel(R) Graphics (MTL)"] * 2,
+        "cpu": ["Intel(R) Core(TM) Ultra 5 125U"] * 2,
+    })
+    lanes = site._with_lanes(df).lane
+    assert lanes.nunique() == 2
+    assert all("Core Ultra 5 125U iGPU · vulkan" in lane for lane in lanes)

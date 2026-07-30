@@ -54,8 +54,11 @@ pre {
 }
 footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 
-/* vega filter selects, mounted below each chart */
-.vega-bindings { margin-top: .5rem; font-size: .85rem; color: var(--ink2); }
-.vega-bindings label { margin-right: 1rem; }
-.vega-bindings select { background: var(--bg); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 5px; padding: .15rem .4rem; }
+/* the one control row: it scopes every chart on the page */
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .9rem;
+  background: var(--card); border-radius: 8px; padding: .55rem .8rem;
+  margin: .9rem 0 .2rem; font-size: .85rem; color: var(--ink2); }
+.controls label { display: flex; align-items: center; gap: .35rem; }
+.controls select { background: var(--bg); color: var(--ink); font: inherit;
+  border: 1px solid var(--line); border-radius: 5px; padding: .2rem 1.4rem .2rem .4rem; }
+.controls .fine { margin-left: auto; }
