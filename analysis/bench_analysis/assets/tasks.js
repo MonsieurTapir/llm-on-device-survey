@@ -188,8 +188,8 @@ window.taskMath = (function () {
    * differ in what each column reports of it. A chat turn reads only the new message
    * (the depth is already in the KV cache) and watches the rate; read-&-summarize
    * reads the whole prompt from empty and watches the rate; background extraction
-   * reports the phases as seconds and its done-after includes loading the model,
-   * because nobody is watching and only the end matters.
+   * reports the phases as seconds and its done-after includes getting the model
+   * ready, because nobody is watching and only the end matters.
    *
    * Per column, a number or a reason — never both. The prompt columns need the fit,
    * the generation column needs the ladder, and the total needs both, so one missing
@@ -234,9 +234,12 @@ window.taskMath = (function () {
         }
       }
 
-      /* Background extraction's done-after includes loading the model — the run
-       * starts from nothing. A lane that scored no job measured no load spans and
-       * says so rather than reading as if the load were free. */
+      /* Background extraction's done-after includes getting the model ready — the
+       * run starts from nothing. That is the weights read and the context
+       * allocated, and not the harness's warm pass, which is mostly a prefill of
+       * the task's own prompt and is a cost no deployment pays. A lane that scored
+       * no job measured no load spans and says so rather than reading as if the
+       * load were free. */
       var load = background ? (rec.load_s || 0) : 0;
       var noLoad = background && rec.load_s === null
         ? "model load not measured here" : null;

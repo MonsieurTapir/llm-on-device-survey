@@ -405,26 +405,34 @@ def test_compilation_is_claimed_only_where_it_was_measured_from_empty():
     rows = _fixture_launch_rows()
 
     cuda = rows[("RTX 3090 · cuda", "qwen3-4B", "pipeline compilation")]
-    assert cuda["seconds"] == 1.83 and cuda["note"] is None
-    assert cuda["label"] == "1.8"
+    assert cuda["seconds"] == 1.56 and cuda["note"] is None
+    assert cuda["label"] == "1.6"
+    # The estimate carries its own arithmetic: a 1.83 s warm pass, 0.27 s of which
+    # its width walk spends on plain prefill, priced from this lane's own fit.
+    assert (cuda["span"], cuda["netted"]) == (1.83, 0.27)
     assert cuda["mb"] == 5.5 and cuda["cache"] == "redirected"
-    # How much was compiled and out of which cache belong to the compile alone: a
-    # cold read of the weights compiles nothing, so it carries neither.
+    # How much was compiled, out of which cache, and what was netted out belong to
+    # the compile alone: a cold read of the weights compiles nothing, so it carries
+    # none of them.
     cold = rows[("RTX 3090 · cuda", "qwen3-4B", "cold first touch")]
     assert cold["seconds"] == 5.0
     assert cold["mb"] is None and cold["cache"] is None
+    assert cold["span"] is None and cold["netted"] is None
 
     mac = rows[("Apple M1 Max · mtl", "gemma4-E2B", "pipeline compilation")]
-    assert mac["seconds"] == 0.99 and mac["note"] is None
-    assert mac["label"] == f"1.0{site.UNVERIFIED_MARK}"
+    assert mac["seconds"] == 0.61 and mac["note"] is None
+    assert mac["label"] == f"0.6{site.UNVERIFIED_MARK}"
     assert mac["cache"] == "unavailable"
     assert mac["mb"] is None  # nothing to report a size for either
     # the lane stays on the chart because its cold first touch is a number
     assert rows[("Apple M1 Max · mtl", "gemma4-E2B", "cold first touch")]["seconds"] == 5.0
 
-    # No compile, no cold load: the cell would be two notes and no ink, so it is gone.
+    # No compile, no cold load: the cell would be two notes and no ink, so it is
+    # gone. E4B's sweep reached one chunk, so it has no fit — and with no fit there
+    # is no way to net the width walk out of its 0.24 s warm pass, which leaves the
+    # compile unestimable rather than equal to the span.
     assert not [key for key in rows if key[1] == "gemma4-E4B" and "cold" in key[2]]
-    assert rows[("RTX 3090 · cuda", "gemma4-E4B", "pipeline compilation")]["seconds"] == 0.24
+    assert ("RTX 3090 · cuda", "gemma4-E4B", "pipeline compilation") not in rows
     assert ("RTX 3090 · cuda", "gemma4-E2B", "pipeline compilation") not in rows
     assert ("Apple M1 Max · mtl", "qwen3-4B", "pipeline compilation") not in rows
     json.dumps(list(rows.values()), allow_nan=False)  # strict — the island is
@@ -443,12 +451,35 @@ def test_cpu_lanes_report_no_compilation_and_leave_the_chart():
     ]).assign(machine="box", backend="llamacpp", model="Ministral3-3B", quant="q4",
               cpu="AMD Ryzen 7 255 w/ Radeon 780M Graphics", threads_batch=8,
               threads_decode=8, status="ok", decode_tps_p50=20.0,
-              shader_cache="redirected", shader_warmup_ms=2990.76)
+              shader_cache="redirected", shader_warmup_ms=2990.76,
+              fit_width=512, fit_intercept_ms=100.0, fit_slope_ms_per_1k=0.0)
     rows = site._launch_rows(site._with_lanes(df))
     assert {(r["lane"], r["phase"]) for r in rows} == {
         ("Ryzen 7 255 iGPU · vulkan", "pipeline compilation"),
         ("Ryzen 7 255 iGPU · vulkan", "cold first touch")}
-    assert [r["seconds"] for r in rows] == [2.99, 0.53]
+    # 2.99 s of warm pass less the 0.26 s its 512+512+256+32-token walk costs at a
+    # flat 100 ms per full chunk.
+    assert [r["seconds"] for r in rows] == [2.73, 0.53]
+
+
+def test_a_lane_with_no_fit_cannot_estimate_its_compile():
+    """The warm pass is compilation and prefill together, and only the lane's own
+    cost function can say how much of it is prefill. Without one the compile is
+    unestimable — which is not the same as the span, and not the same as zero."""
+    df = pd.DataFrame([
+        {"provider": "vulkan:0", "device": "AMD Radeon Graphics (RADV PHOENIX)",
+         "shader_bytes": 2711058, "cold_start_ms_p50": 526.48, "fit_width": None,
+         "fit_intercept_ms": None, "fit_slope_ms_per_1k": None},
+    ]).assign(machine="box", backend="llamacpp", model="Ministral3-3B", quant="q4",
+              cpu="AMD Ryzen 7 255 w/ Radeon 780M Graphics", threads_batch=8,
+              threads_decode=8, status="ok", decode_tps_p50=20.0,
+              shader_cache="redirected", shader_warmup_ms=2990.76)
+    compile_row, = [r for r in site._launch_rows(site._with_lanes(df))
+                    if r["phase"] == "pipeline compilation"]
+    assert compile_row["seconds"] is None
+    assert compile_row["note"] == "no cost function to net the warm pass out of"
+    # The cold first touch keeps the cell on the chart, so the note is seen.
+    assert compile_row["span"] == 2.99 and compile_row["netted"] is None
 
 
 def test_launch_chart_groups_two_phases_on_one_lane_row(tmp_path):
@@ -476,7 +507,7 @@ def test_launch_chart_groups_two_phases_on_one_lane_row(tmp_path):
     cold_fields = {t["field"] for t in cold_bar["encoding"]["tooltip"]}
     assert cold_fields == {"phase", "seconds"}
     assert {t["field"] for t in compile_bar["encoding"]["tooltip"]} == (
-        cold_fields | {"mb", "cache"})
+        cold_fields | {"mb", "cache", "span", "netted"})
     assert bar["encoding"]["x"]["field"] == "seconds"
     assert bar["encoding"]["x"]["scale"] == {"zero": True}
     assert bar["encoding"]["y"]["sort"] == {"field": "rank", "op": "min",
@@ -529,8 +560,10 @@ def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
     cpu = records[("Apple M1 Max · cpu 8t", "gemma4-E2B")]
     assert [1682, 21.0] in cpu["ladder"]  # ptps·ttft + reply/2, at the job's tps
     assert cpu["ladder"] == sorted(cpu["ladder"])
-    assert cuda["load_s"] == 1.05  # model load + context init + the warm pass
-    assert cuda["cold_s"] == 5.0 and cuda["first_launch_s"] == 1.83
+    # Model load + context init, and not the warm pass: that span is the harness
+    # forcing its dispatch widths, which no deployment pays for.
+    assert cuda["load_s"] == 1.0
+    assert cuda["cold_s"] == 5.0 and cuda["first_launch_s"] == 1.56
     assert cuda["measured"] == {"ttft": 0.7, "tps": 80.0, "total": 4.0}
     # The model's own trained context: the page evaluates its fits past the sweep's
     # depths, so this is the one number that can rule a configuration out entirely.
@@ -540,7 +573,7 @@ def test_task_pack_carries_the_cost_function_its_ladder_and_its_envelope():
     # unknown tightness rather than a cold compile — still a cost a batch pays, and
     # reported as one (same rule as the first-launch chart).
     mac = records[("Apple M1 Max · mtl", "gemma4-E2B")]
-    assert mac["first_launch_s"] == 0.99
+    assert mac["first_launch_s"] == 0.61
     assert mac["fit"]["w"] == 512 and mac["kv_max"] == 2048
 
     # Nothing measured a cost function: no bar could be drawn from it, and the

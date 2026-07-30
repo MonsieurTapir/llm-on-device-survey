@@ -39,14 +39,20 @@ Backend invariants (enforced, easy to get wrong):
   templates (Mistral) reject non-alternating roles.
 - `turn-end.completion` carries the decoded text so results stay
   eyeball-inspectable.
-- **The `warmup` span owns all first-touch setup.** Compute pipelines are built
-  lazily, on first use, inside the graph compute that needs them, and which one
-  that is depends on the dispatch width — so warmup walks *every* width the
-  measured passes will run (full ubatch, full over existing history, half,
-  short ragged, single-token decode; plus the task's own prompts in `run`) and
-  ends with an explicit device sync. Miss a width and seconds of shader
-  compilation land in the first measured span that uses it. The harness pins the
-  shader cache per spawn, which turns this span into the first-launch number.
+- **The `warmup` span owns all first-touch setup**, and how much it has to own
+  depends on the caller. Compute pipelines are built lazily, on first use, inside
+  the graph compute that needs them, and which one that is depends on the dispatch
+  width. `sweep` measures a single instrumented pass with no median to hide behind,
+  so its warmup walks *every* width that pass will run (full ubatch, full over
+  existing history, half, short ragged, single-token decode); miss one and seconds
+  of shader compilation land in the first measured span that uses it. `run` inherits
+  the cell's already-populated shader cache and has `iters` iterations to take a
+  median over, so its warmup is one token in, one token out — enough to force the
+  context allocation. Both end with an explicit device sync.
+  Walking widths costs real prefill (~2.5 ubatches), so the span is never a clean
+  compile number: the harness pins the shader cache per spawn to make it
+  deterministic, and the analysis nets the walk's own prefill out before calling
+  what's left compilation.
 
 After building or changing a backend, validate it:
 `uv run --project harness bench check --backend <key> --models models`.

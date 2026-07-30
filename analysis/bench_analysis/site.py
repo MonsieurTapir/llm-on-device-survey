@@ -170,8 +170,8 @@ TASKS = (
      "columns": (("reading the input (s)", None),
                  ("writing the output (s)", None),
                  ("done after (s)", "lower is better")),
-     "note": "Runs unattended, so only the end matters: done-after includes "
-             "loading the model."},
+     "note": "Runs unattended, so only the end matters: done-after adds reading "
+             "the weights and allocating the context to the two phases beside it."},
 )
 
 # The controls, in row order: signal name, the row field it filters, its label.
@@ -843,10 +843,15 @@ def _task_pack(df: pd.DataFrame, sweeps: pd.DataFrame) -> dict:
                     ladder = sorted([*ladder, [fill, round(float(dtps), 2)]])
                     g = {**g, "kv_max": max(g.get("kv_max") or 0, fill)}
         # What a batch pays before its first document: the weights read from a warm
-        # page cache, the context allocated, and the warm pass that builds every
-        # dispatch width the run then uses.
+        # page cache and the context allocated. Not the warm pass — the harness warms
+        # by running the task's own prompts through (plus a synthetic width walk), so
+        # that span is ~1.85x the job's own TTFT on every lane measured, CPU lanes
+        # included, where nothing compiles at all. Charging it here would bill a
+        # reader for prefilling the prompt roughly three times. What it does buy on a
+        # GPU lane — the driver's pipeline set — the first-launch chart reports on
+        # its own, as the once-per-machine cost it is.
         spans = [_plain(getattr(r, f"{span}_ms_p50", None), 1)
-                 for span in ("model_load", "context_init", "warmup")]
+                 for span in ("model_load", "context_init")]
         paid = [s for s in spans if s is not None]
         n_ctx_train = _plain(getattr(r, "geo_n_ctx_train", None), 0)
         records.append({
@@ -990,6 +995,7 @@ LAUNCH_PHASES = ("pipeline compilation", "cold first touch")
 # built beforehand, so the span is reported and marked rather than explained away.
 LAUNCH_NOTES = {
     "nothing": "nothing compiled",
+    "no_fit": "no cost function to net the warm pass out of",
     "absent": "not measured",
 }
 
@@ -998,26 +1004,66 @@ LAUNCH_NOTES = {
 UNVERIFIED_MARK = "*"
 
 
+# The sweep's warm pass walks a fixed set of dispatch widths before it measures
+# anything: a full ubatch from an empty cache, a second over that history, a half
+# ubatch, then a short ragged one — see `warmup` in backends/llamacpp/main.cpp,
+# whose kWarmupRaggedTokens this mirrors. The full width is the fit's own, so only
+# the ragged tail is a constant here.
+WARMUP_RAGGED_TOKENS = 32
+
+
+def _warm_pass_prefill_ms(row) -> float | None:
+    """What the warm pass's width walk costs as plain inference, priced by the
+    lane's own prefill cost function. None where there is no fit to price it with.
+
+    This is the term that has to come out of the span before what is left can be
+    called compilation. It is most of the span on most lanes — a 512-token ubatch
+    walked two and a half times over is real prefill, and on a slow lane that is
+    tens of seconds."""
+    width = _plain(getattr(row, "fit_width", None), 0)
+    intercept = _plain(getattr(row, "fit_intercept_ms", None), 6)
+    slope = _plain(getattr(row, "fit_slope_ms_per_1k", None), 6)
+    if not width or intercept is None or slope is None:
+        return None
+    total, depth = 0.0, 0
+    for chunk in (width, width, max(1, width // 2), WARMUP_RAGGED_TOKENS):
+        total += (intercept + slope * depth / 1e3) * (chunk / width)
+        depth += chunk
+    return total
+
+
 def _compile_seconds(row) -> float | None:
-    """One run's warmup span as a first-launch pipeline compilation — the span a
-    user waits through the first time they launch this model on this lane.
+    """What a first launch pays to build this model's pipelines on this lane — the
+    warm pass with its own prefill netted out.
+
+    The span itself is not that number. It walks dispatch widths by running tokens
+    through them, so it is compilation *and* inference, and the inference part
+    dominates: the sweep's walk alone came to 8.1 s of a 8.9 s span on a Core Ultra
+    125U. `_warm_pass_prefill_ms` prices that part from the lane's own fit and it is
+    subtracted here, which makes this an estimate — a difference of two numbers of
+    similar size, so a small result is not a precise small result.
 
     Not a CPU lane: the GPU backend leaves a fixed, model-independent pipeline set
     behind at registry init, so a CPU lane's non-zero `shader_bytes` is that
     artifact and none of its warmup is compilation.
 
-    Where the harness pinned the cache (`shader_cache == "redirected"`) the span is
-    a from-scratch compile and an empty cache afterwards means the run genuinely
-    compiled nothing — the one state in which that can be said. Where it could not
-    (macOS, windows) the span is still what the launch cost, but the machine may
-    have handed the driver pipelines it built earlier, so the number is a floor of
-    unknown tightness rather than a cold compile. `_launch_rows` marks it; refusing
-    to report it would only replace an uncertain number with a wrong claim."""
+    Where the harness pinned the cache (`shader_cache == "redirected"`) an empty
+    cache afterwards means the run genuinely compiled nothing — the one state in
+    which that can be said. Where it could not (macOS, windows) the machine may have
+    handed the driver pipelines it built earlier, so what is left after the
+    subtraction is a floor of unknown tightness. `_launch_rows` marks that case;
+    refusing to report it would only replace an uncertain number with a wrong
+    claim."""
     if row.family == "cpu":
         return None
     if row.shader_cache == "redirected" and not _plain(getattr(row, "shader_bytes", None), 0):
         return None
-    return _seconds(getattr(row, "shader_warmup_ms", None))
+    span = _plain(getattr(row, "shader_warmup_ms", None), 3)
+    prefill = _warm_pass_prefill_ms(row)
+    if span is None or prefill is None:
+        return None
+    # The fit can over-predict its own walk; a compile cannot take negative time.
+    return _seconds(max(0.0, span - prefill))
 
 
 def _launch_label(seconds: float | None, pinned: bool) -> str | None:
@@ -1032,16 +1078,18 @@ def _launch_label(seconds: float | None, pinned: bool) -> str | None:
 def _launch_rows(df: pd.DataFrame) -> list[dict]:
     """Rows for the first-launch chart: up to two phases per (lane, model).
 
-    *pipeline compilation* is the sweep's warmup span on a lane that builds compute
-    pipelines from source. It reads as a cold from-scratch compile only where the
-    harness pinned the cache (`shader_cache == 'redirected'`); there, an empty cache
-    afterwards means nothing was compiled and the row says so instead of printing
-    seconds. Where the cache could not be pinned the span is reported and marked
-    (see `_launch_label`) — that platform tells us nothing about what it had built
-    already, which is a reason to qualify the number, not to withhold it. CPU lanes
-    emit no compile row at all: the GPU backend leaves a fixed, model-independent
-    pipeline set behind at registry init, so their non-zero `shader_bytes` is that
-    artifact and none of their warmup is compilation.
+    *pipeline compilation* is the sweep's warmup span with its own prefill netted
+    out (`_compile_seconds`) — the span is a width walk, so most of it is inference
+    on most lanes, and the raw span rides along in the tooltip beside what was
+    subtracted rather than disappearing. It reads as a cold from-scratch compile
+    only where the harness pinned the cache (`shader_cache == 'redirected'`); there,
+    an empty cache afterwards means nothing was compiled and the row says so instead
+    of printing seconds. Where the cache could not be pinned the estimate is
+    reported and marked (see `_launch_label`) — that platform tells us nothing about
+    what it had built already, which is a reason to qualify the number, not to
+    withhold it. CPU lanes emit no compile row at all: the GPU backend leaves a
+    fixed, model-independent pipeline set behind at registry init, so their non-zero
+    `shader_bytes` is that artifact and none of their warmup is compilation.
 
     *cold first touch* is the job's `cold_start_ms`, which the harness measures once
     per machine and model file and attributes to the first cell that scored it — so
@@ -1065,19 +1113,30 @@ def _launch_rows(df: pd.DataFrame) -> list[dict]:
         cell = []
         if gpu:
             pinned = r.shader_cache == "redirected"
+            span = _seconds(getattr(r, "shader_warmup_ms", None))
+            netted = _seconds(_warm_pass_prefill_ms(r))
             value = _compile_seconds(r)
-            note = None if value is not None else LAUNCH_NOTES[
-                "nothing" if pinned else "absent"]
-            # How much was compiled and out of which cache describe *this* phase and
-            # only this one — a cold read of the weights compiles nothing.
+            if value is not None:
+                note = None
+            elif pinned and not shader_bytes:
+                note = LAUNCH_NOTES["nothing"]
+            elif span is not None and netted is None:
+                note = LAUNCH_NOTES["no_fit"]
+            else:
+                note = LAUNCH_NOTES["absent"]
+            # How much was compiled, out of which cache, and what the estimate was
+            # cut from describe *this* phase and only this one — a cold read of the
+            # weights compiles nothing and nets nothing out.
             cell.append({**base, "phase": LAUNCH_PHASES[0], "seconds": value,
                          "note": note, "cache": r.shader_cache,
                          "label": _launch_label(value, pinned),
+                         "span": span, "netted": netted,
                          "mb": _plain(shader_bytes / 1e6) if shader_bytes else None})
         cold = _seconds(getattr(r, "cold_start_ms_p50", None))
         if cold is not None:
             cell.append({**base, "phase": LAUNCH_PHASES[1], "seconds": cold,
                          "note": None, "cache": None, "mb": None,
+                         "span": None, "netted": None,
                          "label": _launch_label(cold, True)})
         if any(row["seconds"] is not None for row in cell):
             rows += cell
@@ -1127,7 +1186,12 @@ def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> di
     common = [{"field": "phase"}, {"field": "seconds", "title": "seconds"}]
     tooltips = {
         LAUNCH_PHASES[0]: [*common, {"field": "mb", "title": "compiled (MB)"},
-                           {"field": "cache", "title": "shader cache"}],
+                           {"field": "cache", "title": "shader cache"},
+                           # The estimate's own arithmetic, so a reader can see what
+                           # it was cut from instead of taking the difference on
+                           # trust: seconds == span - netted.
+                           {"field": "span", "title": "warm pass (s)"},
+                           {"field": "netted", "title": "its prefill (s)"}],
         LAUNCH_PHASES[1]: common,
     }
     bare_x = {k: v for k, v in x.items() if k != "axis"}  # only one layer may define it
@@ -1143,11 +1207,11 @@ def _launch_spec(rows: list[dict], controls: list[dict], lanes: list[str]) -> di
         "$schema": VL_SCHEMA,
         "title": {"text": "one-time first launch (s)", "anchor": "start",
                   # Two lines, because one runs past the container and clips.
-                  "subtitle": ["compilation measured from an empty shader cache "
-                               "where the platform lets us pin one",
-                               f"{UNVERIFIED_MARK} it pins none here (macOS, "
-                               f"windows): the span may include pipelines built "
-                               f"earlier, so it is a floor"],
+                  "subtitle": ["compilation estimated from an empty shader cache: "
+                               "the warm pass, less what its width walk costs as "
+                               "prefill",
+                               f"{UNVERIFIED_MARK} no cache to empty here (macOS, "
+                               f"windows), so the estimate is a floor"],
                   "fontSize": 12, "subtitleFontSize": 10},
         "data": {"values": rows},
         "params": _params(controls),

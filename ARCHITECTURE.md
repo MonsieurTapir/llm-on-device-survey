@@ -50,8 +50,9 @@ Per `(model, variant, provider)` cell, in order:
    instead of one — same tokens, same envelope, so it costs nothing extra —
    and the pair against the full-width cost is the lane's **dispatch-width
    sensitivity**. This spawn is also handed an empty shader-cache directory, so
-   its warmup span is the driver compiling this model's pipeline set from
-   scratch: the **first-launch cost**, which is otherwise invisible. The spawn
+   its warmup span holds the driver compiling this model's pipeline set from
+   scratch — net out what the span's own width walk costs as prefill and what
+   remains is the **first-launch cost**, otherwise invisible. The spawn
    also reports the model **geometry**: scalars,
    per-layer attention typing, tensor inventory, and the allocator's actual
    buffer sizes — including a **memory cost curve**, the breakdown
@@ -172,15 +173,24 @@ indicator, not a second operating point — the context is still open at the ful
 **First-touch setup is not inference.** A GPU backend builds compute pipelines
 lazily, on first use, *inside* the graph compute that needs them, and which
 pipeline that is depends on the dispatch width. Left alone, seconds of shader
-compilation land in whichever measured span happens to run a width first. So the
-warmup deliberately walks every width the pass will use — a full ubatch, a full
-one over existing history, a half, a short ragged one, then a single-token
-decode — and the job's warmup walks its task's own prompts as well. Nothing
-measured is charged for setup, and because the harness pins the shader cache to
-a directory it controls, the warmup span becomes a *measurement*: the sweep's is
-a from-scratch compile, the job's is the warm second launch. macOS exposes no
-way to pin Metal's cache, so results record whether the location was pinnable
-and only pinned numbers compare across machines.
+compilation land in whichever measured span happens to run a width first. The
+sweep's warmup therefore walks every width its pass will use — a full ubatch, a
+full one over existing history, a half, a short ragged one, then a single-token
+decode. The job's does not: its spawn inherits the cell's shader cache already
+populated by the sweep, and its `iters` iterations give it a median, so one token
+in and one token out is enough to force the context allocation. Nothing measured
+is charged for setup, and because the harness pins the shader cache to a
+directory it controls, the sweep's span is a from-scratch compile. macOS and
+windows honour none of the cache-path variables, so results record whether the
+location was pinnable and only pinned numbers compare across machines.
+
+**A warm pass is not a compile time.** Walking widths means running tokens
+through them, so the sweep's warmup is compilation and inference together — and
+usually mostly inference: on a Core Ultra 125U, 8.1 s of an 8.9 s span. What the
+walk costs as plain prefill is priced from the lane's own cost function and
+subtracted before the remainder is reported as compilation, which makes that an
+estimate — a difference of two numbers of similar size. The report carries the
+raw span and the amount netted out beside it.
 
 **Parameters, not just points.** The full-width chunks reduce to a line whose
 intercept is the per-dispatch cost and whose slope is the attention term —

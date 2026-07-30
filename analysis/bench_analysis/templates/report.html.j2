@@ -130,19 +130,25 @@
   <h2>First launch</h2>
   <p class="fine">What the same selection pays once, before any of the rates above
     apply. Pipeline compilation is the GPU driver building this model's compute
-    pipelines from source: it is measured here from an empty shader cache, and the
-    driver keeps the result, so it is a once-per-machine cost rather than something
-    every launch pays. Cold first touch is the load with the page cache cold — the
-    weights read off storage plus the context allocation that follows. The harness
-    measures it once per machine and model, on the lane that loaded the file first,
-    so it appears on that lane and is not spread across the ones that later read
-    the same warm file. CPU lanes compile nothing for inference and are absent, so
-    a CPU-only selection leaves this chart empty. Some platforms pin no shader
-    cache at all — macOS keeps Metal's under OS control, and the Windows vendor
-    drivers honour none of the variables the harness sets — so there the driver may
-    have handed back pipelines the machine built earlier. Those spans are marked
-    with an asterisk: still what that launch cost, but a floor of unknown tightness
-    rather than a cold compile, and not comparable across machines.</p>
+    pipelines from source, from an empty shader cache; the driver keeps the result,
+    so it is a once-per-machine cost rather than something every launch pays. It is
+    an estimate, and the subtraction behind it is worth knowing: the harness builds
+    those pipelines by running tokens through every dispatch width it will later
+    use, so the span it times is compilation and inference together — usually
+    mostly inference. What that width walk costs as plain prefill is priced from
+    the lane's own cost function and taken back off. Hover a bar for the raw span
+    and the amount netted out. Two numbers of similar size make a small difference,
+    so read a small bar as small rather than as exact. Cold first touch is the load
+    with the page cache cold — the weights read off storage plus the context
+    allocation that follows. The harness measures it once per machine and model, on
+    the lane that loaded the file first, so it appears on that lane and is not
+    spread across the ones that later read the same warm file. CPU lanes compile
+    nothing for inference and are absent, so a CPU-only selection leaves this chart
+    empty. Some platforms pin no shader cache at all — macOS keeps Metal's under OS
+    control, and the Windows vendor drivers honour none of the variables the
+    harness sets — so there the driver may have handed back pipelines the machine
+    built earlier. Those are marked with an asterisk: a floor of unknown tightness,
+    and not comparable across machines.</p>
   <div class="island" data-spec="launch"></div>
 </section>
 {% endif %}

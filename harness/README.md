@@ -78,10 +78,16 @@ pre-warms a cell.
 Everything lives under one scratch root that is deleted with the run. A
 contributor's own driver cache is never read, written, or cleared.
 
-macOS is the gap: Metal's pipeline cache is OS-managed with no documented path
-or disable knob, so `sweep.shader_cache` records `unavailable` there and that
-run's `warmup_ms` reflects prior machine state we can neither see nor set.
-Only `redirected` numbers compare across machines.
+macOS and windows are the gap. Metal's pipeline cache is OS-managed with no
+documented path or disable knob, and the windows vendor drivers are not Mesa and
+honour none of the three variables — an AMD laptop left its pinned directory
+empty across an entire run. `sweep.shader_cache` records `unavailable` on both,
+and those runs' `warmup_ms` reflects prior machine state we can neither see nor
+set. Only `redirected` numbers compare across machines.
+
+The span is not a compile time either way: walking the widths runs tokens
+through them, which is usually the bulk of it. The analysis prices that walk from
+the lane's own prefill fit and subtracts it before reporting what's left.
 
 ## Slow cells
 

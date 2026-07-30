@@ -200,6 +200,7 @@ def load_results(root: str | Path = "results") -> pd.DataFrame:
             # per-dispatch term, the attention term, and the fit quality that
             # stands in for the repeats the single-pass prefill doesn't have.
             fit = run["sweep"]["fit"] or {}  # null below three full-width points
+            row["fit_width"] = fit.get("width")
             row["fit_intercept_ms"] = fit.get("intercept_ms")
             row["fit_slope_ms_per_1k"] = fit.get("slope_ms_per_1k")
             row["fit_r2"] = fit.get("r2")
