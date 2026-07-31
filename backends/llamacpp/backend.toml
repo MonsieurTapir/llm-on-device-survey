@@ -1,0 +1,6 @@
+# The only file the survey tool reads to invoke this backend.
+# {dir} is substituted with this backend's absolute directory; the survey tool appends
+# the CLI subcommand + flags (see ../../README.md "Conventions").
+key  = "llamacpp"                      # must match the events object's `backend`
+name = "llama.cpp"                     # human label for reports
+cmd  = ["{dir}/build/survey-llamacpp"]  # argv prefix

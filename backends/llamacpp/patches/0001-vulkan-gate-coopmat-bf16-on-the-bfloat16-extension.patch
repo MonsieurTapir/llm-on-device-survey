@@ -1,0 +1,38 @@
+Subject: vulkan: gate coopmat bf16 on the bfloat16 extension being present
+
+`device->coopmat_bf16_support` is set from cooperative-matrix properties
+alone, and then pushes "VK_KHR_shader_bfloat16" into vkCreateDevice on its
+own. A driver that reports BF16 matrix configurations without exposing the
+shader extension fails device creation outright:
+
+    survey-llamacpp: vk::PhysicalDevice::createDevice: ErrorExtensionNotPresent
+    ERROR: vkDestroyFence: Invalid device [VUID-vkDestroyFence-device-parameter]
+
+and the failure is unsurvivable in-process: the exception unwinds into
+teardown of a half-initialized device and the loader aborts. Observed on an
+AMD Radeon 760M (RDNA3 iGPU), AMD proprietary driver, Windows 11, whose
+device banner states the contradiction plainly (bf16: 0, matrix cores:
+KHR_coopmat).
+
+The direct shader-bf16 path is already gated this way upstream (the
+`if (bfloat16_support)` push in the extension-enumeration block); this
+applies the same gate to the coopmat-derived path. Retired when upstream
+gates coopmat_bf16_support on the extension list.
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index e32dd7a56..a719ebed2 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -6707,6 +6707,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
+             device_extensions.push_back("VK_KHR_cooperative_matrix");
+         }
+ #if defined(VK_KHR_shader_bfloat16)
++        // A driver can report BF16 cooperative-matrix shapes without exposing
++        // VK_KHR_shader_bfloat16 (AMD proprietary on RDNA3 iGPUs); requesting
++        // the extension then fails vkCreateDevice outright. Gate the coopmat
++        // capability on the extension actually being present.
++        if (!bfloat16_support) {
++            device->coopmat_bf16_support = false;
++        }
+         if (device->coopmat_bf16_support) {
+             device_extensions.push_back("VK_KHR_shader_bfloat16");
+         }
