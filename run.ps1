@@ -11,7 +11,9 @@ $ErrorActionPreference = "Stop"
 # than the transfer itself on a kit-sized download.
 $ProgressPreference = "SilentlyContinue"
 $repo = "MonsieurTapir/llm-on-device-survey"
-function Fail($msg) { Write-Host "`n!! $msg" -ForegroundColor Red; exit 1 }
+# Same visual language as the kit's run.ps1 and the survey CLI.
+function Say($msg)  { Write-Host ""; Write-Host "-> $msg" -ForegroundColor Cyan }
+function Fail($msg) { Write-Host ""; Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
 
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
   Fail "no prebuilt kit for this architecture ($env:PROCESSOR_ARCHITECTURE) - Windows x64 only"
@@ -26,7 +28,7 @@ $asset = "llm-on-device-survey-$($tag -replace '^v', '')-windows-x64"
 $kit = "llm-on-device-survey\$tag-windows-x64"
 if (-not (Test-Path $kit)) {
   $base = "https://github.com/$repo/releases/download/$tag"
-  Write-Host "== downloading $asset.zip"
+  Say "downloading $asset.zip"
   Invoke-WebRequest -Uri "$base/$asset.zip" -OutFile "$asset.zip" -UseBasicParsing
   # To a file, then read as text: GitHub serves every release asset as
   # application/octet-stream, and for a non-text content type Invoke-WebRequest
@@ -43,7 +45,7 @@ if (-not (Test-Path $kit)) {
   Remove-Item "$asset.zip", "$asset.zip.sha256"
 }
 
-if ($env:BENCH_BOOTSTRAP_ONLY) { Write-Host "== bootstrap ok: $kit"; exit 0 }
+if ($env:BENCH_BOOTSTRAP_ONLY) { Write-Host "OK bootstrap ok: $kit" -ForegroundColor Green; exit 0 }
 & (Join-Path $kit "run.ps1")
 # `exit` inside a script invoked with & ends that script only — propagate its
 # code, or a failed kit run reports success to whatever launched this.

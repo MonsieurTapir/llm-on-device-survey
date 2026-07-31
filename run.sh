@@ -12,7 +12,9 @@
 # Safe to re-run: an already-unpacked kit is reused, and the kit itself resumes.
 set -euo pipefail
 REPO_SLUG="MonsieurTapir/llm-on-device-survey"
-fail() { printf '\n!! %s\n' "$*" >&2; exit 1; }
+if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; R=$'\033[31m'; N=$'\033[0m'; else B= G= R= N=; fi
+say()  { printf '\n%s→ %s%s\n' "$B" "$*" "$N"; }
+fail() { printf '\n%s✗%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 
 # http <url> [<out>] — curl or wget, whichever exists; stdout when no <out>.
 if command -v curl >/dev/null; then
@@ -40,7 +42,7 @@ ASSET="llm-on-device-survey-${TAG#v}-$TARGET"
 KIT="llm-on-device-survey/$TAG-$TARGET"
 if [ ! -d "$KIT" ]; then
   BASE="https://github.com/$REPO_SLUG/releases/download/$TAG"
-  echo "== downloading $ASSET.tar.gz"
+  say "downloading $ASSET.tar.gz"
   http "$BASE/$ASSET.tar.gz" "$ASSET.tar.gz"
   http "$BASE/$ASSET.tar.gz.sha256" "$ASSET.tar.gz.sha256"
   { command -v sha256sum >/dev/null && sha256sum -c "$ASSET.tar.gz.sha256" ||
@@ -50,5 +52,5 @@ if [ ! -d "$KIT" ]; then
   rm -f "$ASSET.tar.gz" "$ASSET.tar.gz.sha256"
 fi
 
-[ -n "${BENCH_BOOTSTRAP_ONLY:-}" ] && { echo "== bootstrap ok: $KIT"; exit 0; }
+[ -n "${BENCH_BOOTSTRAP_ONLY:-}" ] && { printf '%s✓%s bootstrap ok: %s\n' "$G" "$N" "$KIT"; exit 0; }
 exec "./$KIT/run.sh"

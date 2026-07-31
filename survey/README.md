@@ -132,7 +132,7 @@ carry both (`llamacpp` preallocates KV with a clean plateau).
 survey/
   cli.py             entry point — argparse + dispatch only
   commands/          one module per subcommand: plan / run / aggregate / check / publish
-  _log.py            log / warn / die → stderr (stdout stays clean)
+  _log.py            styled stderr — glyph-colored lines, spinners, bars (stdout stays clean)
   config.py          backend.toml → argv prefix; repo/models/tasks/results paths
   registry.py        models.yaml variants → `providers` → the cell list
   fetch.py           `survey fetch` — pull artifacts from the Hub per models.yaml

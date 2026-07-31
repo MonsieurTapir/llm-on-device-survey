@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import config, fetch
+from . import _log, config, fetch
 from .commands.aggregate import cmd_aggregate
 from .commands.bundle import cmd_bundle
 from .commands.check import cmd_check
@@ -155,7 +155,14 @@ def main() -> None:
     p_ing.set_defaults(func=cmd_ingest)
 
     args = ap.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except SystemExit as e:
+        # die() carries its message here; print it in the house style and exit 1.
+        if isinstance(e.code, str):
+            _log.log(e.code)
+            raise SystemExit(1) from None
+        raise
 
 
 if __name__ == "__main__":

@@ -10,8 +10,12 @@ cd "$(dirname "$0")"
 
 UV="bin/uv"
 MODELS="../models"
-say()  { printf '\n== %s\n' "$*"; }
-fail() { printf '\n!! %s\n' "$*" >&2; exit 1; }
+# Same visual language as the survey CLI: bold section arrows, green ✓, red ✗ —
+# plain when stdout isn't a terminal.
+if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; R=$'\033[31m'; N=$'\033[0m'; else B= G= R= N=; fi
+say()  { printf '\n%s→ %s%s\n' "$B" "$*" "$N"; }
+done_() { printf '\n%s✓%s %s\n' "$G" "$N" "$*"; }
+fail() { printf '\n%s✗%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 
 [ -x "$UV" ] || fail "bin/uv is missing or not executable — the zip may be
    incomplete; please re-download it."
@@ -31,8 +35,7 @@ say "Setting up Python (self-contained — nothing touches your system Python)"
 
 say "Fetching models (about 8 GB the first time; kit versions share the cache; safe to interrupt and re-run)"
 "$UV" run survey fetch --models-dir "$MODELS" ||
-  fail "model download failed or was interrupted — re-run ./run.sh to resume.
-   Note: downloads can look stalled for minutes and then jump; that is normal."
+  fail "model download failed or was interrupted — re-run ./run.sh to resume."
 
 say "Conformance-checking the exe against the contract"
 "$UV" run survey check --backend llamacpp --models "$MODELS" ||
@@ -54,4 +57,4 @@ say "Packing your submission"
 "$UV" run survey bundle results/local --out . ||
   fail "bundling failed — please open an issue with the output above."
 
-say "All done — attach the submission-*.tar.gz above to a new issue (link above)."
+done_ "All done — attach the submission-*.tar.gz above to a new issue (link above)."
