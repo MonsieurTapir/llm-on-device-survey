@@ -1,0 +1,42 @@
+[project]
+name = "llm-on-device-survey"
+version = "1.0.0"
+description = "What small LLMs cost to run on consumer hardware"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "psutil>=6.0",       # RSS sampling (memory_info) over the process tree
+    "nvidia-ml-py>=12.0", # per-PID VRAM on NVIDIA (NVML)
+    "pyyaml>=6.0",       # parse model cards + task definitions
+    "jsonschema>=4.0",   # validate events + results against schema/
+    "huggingface-hub>=0.25", # survey fetch — pull model vaults from the Hub
+]
+
+[dependency-groups]
+# `uv sync` installs the survey tool only — what a benchmark box needs.
+# The report builder's stack is opt-in: `uv sync --group analysis`.
+analysis = [
+    "pandas>=2.2",       # tidy frame over the per-machine results JSON
+    "altair>=6.0",       # charts as vega-lite specs; the site embeds them
+    "jinja2>=3.1",       # the report is jinja templates over computed context
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+survey = "survey.cli:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["survey", "analysis"]
