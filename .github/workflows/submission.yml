@@ -1,0 +1,115 @@
+# Turn a submission issue into a reviewed pull request.
+#
+# Trigger: the `submission` label, which the issue form applies at creation —
+# the pipeline runs unattended and the PR review is the one human gate; nothing
+# reaches main (→ Pages) without it. The tarball is treated as untrusted input
+# end-to-end: `survey ingest` checks structure before extraction,
+# schema-validates, and scans every string (they render into the published
+# report). Workflow code always comes from main (issues trigger), so there is
+# no fork-PR execution surface. Worst-case abuse is spam PRs and CI minutes;
+# if that ever materialises, gate this condition on a maintainer-applied label.
+#
+# Replacing results already on main needs the `rerun` label (create it once in
+# the repo). Labelling takes write access, so only a maintainer can overwrite a
+# published submission — a stranger cannot claim someone else's name. Adding
+# `rerun` re-runs the pipeline; a submission that never landed re-runs by
+# removing and re-adding `submission`.
+name: submission
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: submission-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: github.event.label.name == 'submission' || github.event.label.name == 'rerun'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE: ${{ github.event.issue.number }}
+      FORCE: ${{ contains(github.event.issue.labels.*.name, 'rerun') && '--force' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Find and download the attachment
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          url=$(grep -oE 'https://github\.com/user-attachments/files/[0-9]+/[A-Za-z0-9._-]+' <<<"$BODY" | head -1)
+          if [ -z "$url" ]; then
+            gh issue comment "$ISSUE" --body \
+              "❌ No attachment found in the issue body. Please edit the issue and drag the \`submission-<name>.tar.gz\` into the *Submission file* box."
+            exit 1
+          fi
+          # 26 MB cap mirrors GitHub's own attachment limit; a real bundle is ~300 KB.
+          curl -fsSL --max-filesize 26214400 -o submission.tar.gz "$url"
+
+      - name: Validate and land (survey ingest)
+        id: ingest
+        run: |
+          set +e
+          uv run survey ingest $FORCE submission.tar.gz 2>&1 | tee ingest.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            {
+              echo "❌ The submission failed validation:"
+              echo '```'
+              tail -30 ingest.log
+              echo '```'
+              echo "Fix and re-attach (edit the issue), then ask a maintainer to re-run it (remove and re-add the \`submission\` label, or add \`rerun\` to replace results that are already published)."
+            } >comment.md
+            gh issue comment "$ISSUE" --body-file comment.md
+            exit "$code"
+          fi
+          name=$(sed -n 's/^ingested \([a-z0-9-]*\) .*/\1/p' ingest.log | head -1)
+          desc=$(sed -n 's/^  machine: \(.*\)/\1/p' ingest.log | head -1)
+          echo "name=$name" >>"$GITHUB_OUTPUT"
+          echo "desc=$desc" >>"$GITHUB_OUTPUT"
+
+      - name: Open the pull request
+        env:
+          NAME: ${{ steps.ingest.outputs.name }}
+          DESC: ${{ steps.ingest.outputs.desc }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="submission/$NAME"
+          git checkout -b "$branch"
+          git add submissions
+          if git diff --cached --quiet; then
+            gh issue comment "$ISSUE" --body \
+              "✅ Validation passed, but this bundle is byte-identical to the \`$NAME\` results already published — there is nothing to open a pull request for."
+            exit 0
+          fi
+          git commit -m "submission($NAME): $DESC" -m "Ingested from #$ISSUE by the submission workflow."
+          git push -f origin "$branch"
+          {
+            echo "Automated ingest of #$ISSUE — validation passed."
+            echo ""
+            echo '```'
+            cat ingest.log
+            echo '```'
+            echo ""
+            echo "Review the coverage README and sample completions, then merge to publish."
+            echo ""
+            echo "Closes #$ISSUE"
+          } >pr.md
+          # A re-run pushes onto the branch of the open PR it already has.
+          pr_url=$(gh pr list --head "$branch" --state open --json url --jq '.[0].url')
+          if [ -n "$pr_url" ]; then
+            gh pr edit "$pr_url" --title "submission($NAME): $DESC" --body-file pr.md
+            gh issue comment "$ISSUE" --body "✅ Validation passed — the pull request now holds this bundle: $pr_url. It appears on the published report once merged. Thank you!"
+          else
+            pr_url=$(gh pr create --title "submission($NAME): $DESC" --body-file pr.md --base main --head "$branch")
+            gh issue comment "$ISSUE" --body "✅ Validation passed — your submission is now a pull request: $pr_url. It appears on the published report once merged. Thank you!"
+          fi
