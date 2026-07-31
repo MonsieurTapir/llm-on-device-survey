@@ -11,8 +11,10 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 Set-Location -Path $PSScriptRoot
 
-function Say($msg)  { Write-Host "`n== $msg" }
-function Fail($msg) { Write-Host "`n!! $msg" -ForegroundColor Red; exit 1 }
+# Same visual language as the survey CLI: section arrows, green checks, red crosses.
+function Say($msg)  { Write-Host ""; Write-Host "-> $msg" -ForegroundColor Cyan }
+function Done($msg) { Write-Host ""; Write-Host "OK $msg" -ForegroundColor Green }
+function Fail($msg) { Write-Host ""; Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
 
 # Unzipped by hand, every file carries the mark Windows puts on downloads, and
 # SmartScreen gates the exes on it. The bootstrap run.ps1 clears it after
@@ -55,7 +57,7 @@ if ($LASTEXITCODE -ne 0) { Fail "Python setup failed - check your network connec
 
 Say "Fetching models (about 8 GB the first time; kit versions share the cache; safe to interrupt and re-run)"
 & $uv run survey fetch --models-dir $models
-if ($LASTEXITCODE -ne 0) { Fail "model download failed or was interrupted - re-run run.bat to resume. Downloads can look stalled for minutes and then jump; that is normal." }
+if ($LASTEXITCODE -ne 0) { Fail "model download failed or was interrupted - re-run run.bat to resume." }
 
 Say "Conformance-checking the exe against the contract"
 & $uv run survey check --backend llamacpp --models $models
@@ -73,4 +75,4 @@ Say "Packing your submission"
 & $uv run survey bundle results/local --out .
 if ($LASTEXITCODE -ne 0) { Fail "bundling failed - please open an issue with the output above." }
 
-Say "All done - attach the submission-*.tar.gz above to a new issue (link above)."
+Done "All done - attach the submission-*.tar.gz above to a new issue (link above)."

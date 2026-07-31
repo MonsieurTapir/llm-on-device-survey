@@ -168,7 +168,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         )
         if pin and versions and not pin.startswith(versions.get("llama_cpp_commit", "")):
             log(
-                f"⚠️  {filename}: llama_cpp_commit {versions.get('llama_cpp_commit')!r} "
+                f"⚠ {filename}: llama_cpp_commit {versions.get('llama_cpp_commit')!r} "
                 f"differs from the pinned {pin[:12]!r} — check it came from a known release"
             )
 

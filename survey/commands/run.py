@@ -18,7 +18,7 @@ from pathlib import Path
 from statistics import median
 
 from .. import aggregate, config, machine, metrics, registry, sampling, schema, spawn
-from .._log import log
+from .._log import log, working
 from ..tasks import Task
 from ..tasks import load as load_tasks
 from .aggregate import RAW_SCHEMA_VERSION
@@ -92,18 +92,19 @@ def _job(backend, v, ep, task: Task, *, spawns, iters, deadline_ms, backstop_s, 
     launch on a user's machine would."""
     sp: list[spawn.SpawnResult] = []
     for j in range(spawns):
-        s = spawn.run(
-            backend.cmd,
-            model_path=v.model_path,
-            quant=v.quant,
-            ep=ep,
-            task=task.spec,
-            iters=iters,
-            deadline_ms=deadline_ms,
-            backstop_s=backstop_s,
-            sample=True,
-            shader_cache=shader_cache,
-        )
+        with working(f"job {task.name} {j + 1}/{spawns}"):
+            s = spawn.run(
+                backend.cmd,
+                model_path=v.model_path,
+                quant=v.quant,
+                ep=ep,
+                task=task.spec,
+                iters=iters,
+                deadline_ms=deadline_ms,
+                backstop_s=backstop_s,
+                sample=True,
+                shader_cache=shader_cache,
+            )
         sp.append(s)
         d = _decode_tps(s)
         note = (
@@ -198,12 +199,13 @@ def cmd_run(args: argparse.Namespace) -> None:
         # 0. one ceiling probe per provider, ahead of its first cell.
         if ep not in probed:
             probed.add(ep)
-            p = spawn.probe(
-                backend.cmd,
-                ep=ep,
-                backstop_s=PROBE_BACKSTOP_S,
-                shader_cache=cache_root / f"probe-{lane_dir}",
-            )
+            with working(f"probe {ep} — device ceilings"):
+                p = spawn.probe(
+                    backend.cmd,
+                    ep=ep,
+                    backstop_s=PROBE_BACKSTOP_S,
+                    shader_cache=cache_root / f"probe-{lane_dir}",
+                )
             probes.append({"provider": ep, "trace": aggregate.trace_of(p)})
             log(f"probe {ep}: {'ok' if p.events else f'✗ {p.error}'}")
 
@@ -211,16 +213,17 @@ def cmd_run(args: argparse.Namespace) -> None:
         # load first, then measures its points; track the genuine cold first-touch.
         is_cold = v.model_path not in touched
         touched.add(v.model_path)
-        sweep_status, sweep_res = _sweep(
-            backend,
-            v,
-            ep,
-            gate_task,
-            cold=is_cold,
-            deadline_ms=sweep_deadline_ms,
-            backstop_s=sweep_backstop_s,
-            shader_cache=cell_cache,
-        )
+        with working(f"{head}  gate + sweep"):
+            sweep_status, sweep_res = _sweep(
+                backend,
+                v,
+                ep,
+                gate_task,
+                cold=is_cold,
+                deadline_ms=sweep_deadline_ms,
+                backstop_s=sweep_backstop_s,
+                shader_cache=cell_cache,
+            )
         # Read straight after the sweep: this is what its compile produced, before
         # the job spawns touch the directory.
         shader_bytes = spawn.shader_cache_bytes(cell_cache)
@@ -263,7 +266,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             budget = job_task.spec.get("max_context_length")
             first = next((s for s in job_spawns if s.events), None)
             if budget and first and (peak := metrics.peak_context(first.events)) > budget:
-                log(f"    ⚠️  {job_task.name}: sequence {peak} tok > max_context_length {budget}")
+                log(f"    ⚠ {job_task.name}: sequence {peak} tok > max_context_length {budget}")
                 overruns.append(f"{v.model} {v.quant} {ep}: {peak} > {budget}")
 
         cell = {
@@ -318,7 +321,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if overruns:
         log("")
         log(
-            f"⚠️  {len(overruns)} prompt overrun(s) — these cells exceeded max_context_length; "
+            f"⚠ {len(overruns)} prompt overrun(s) — these cells exceeded max_context_length; "
             "inference may have truncated. Trim the corpus or raise the task's budget:"
         )
         for line in overruns:

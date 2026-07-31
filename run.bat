@@ -7,10 +7,10 @@ setlocal
 set "PS1=%~dp0run.ps1"
 set "RAW=https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1"
 
-if not exist "%PS1%" echo == downloading run.ps1
+if not exist "%PS1%" echo -^> downloading run.ps1
 if not exist "%PS1%" powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%RAW%' -OutFile '%PS1%'"
 if not exist "%PS1%" echo.
-if not exist "%PS1%" echo !! could not download run.ps1 - check your network connection and re-run.
+if not exist "%PS1%" echo XX could not download run.ps1 - check your network connection and re-run.
 
 rem Unblock-File first: a .ps1 downloaded from the internet carries
 rem mark-of-the-web, and Windows prompts for confirmation (or refuses outright)

@@ -10,6 +10,7 @@ dependencies = [
     "pyyaml>=6.0",       # parse model cards + task definitions
     "jsonschema>=4.0",   # validate events + results against schema/
     "huggingface-hub>=0.25", # survey fetch — pull model vaults from the Hub
+    "rich>=13.0",        # one output language: styled stderr, progress, spinners
 ]
 
 [dependency-groups]
