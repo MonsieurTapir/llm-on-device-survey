@@ -2,7 +2,7 @@
   "schema_version": "1",
   "backend": "llamacpp",
   "machine": {
-    "host": "ryzen-9-9950x-rtx-5080",
+    "host": "monsieurtapir-workstation",
     "os": "linux",
     "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
     "cpu_cores": 16,
@@ -35,7 +35,7 @@
           "n": 512,
           "k": 4096,
           "dtype": "f16",
-          "tflops_p50": 94.27,
+          "tflops_p50": 96.52,
           "n_reps": 5
         },
         {
@@ -43,7 +43,7 @@
           "n": 512,
           "k": 8192,
           "dtype": "f16",
-          "tflops_p50": 107.92,
+          "tflops_p50": 108.22,
           "n_reps": 3
         }
       ],
@@ -51,19 +51,19 @@
         {
           "kind": "h2d",
           "bytes": 268435456,
-          "gbs_p50": 19.87,
+          "gbs_p50": 20.59,
           "n_reps": 3
         },
         {
           "kind": "d2h",
           "bytes": 268435456,
-          "gbs_p50": 14.0,
+          "gbs_p50": 14.05,
           "n_reps": 3
         },
         {
           "kind": "d2d",
           "bytes": 268435456,
-          "gbs_p50": 816.18,
+          "gbs_p50": 809.95,
           "n_reps": 3
         }
       ]
@@ -82,8 +82,8 @@
           "n": 512,
           "k": 4096,
           "dtype": "f16",
-          "tflops_p50": 0.67,
-          "n_reps": 5
+          "tflops_p50": 0.68,
+          "n_reps": 3
         },
         {
           "m": 8192,
@@ -98,19 +98,19 @@
         {
           "kind": "h2d",
           "bytes": 268435456,
-          "gbs_p50": 19.33,
+          "gbs_p50": 20.02,
           "n_reps": 3
         },
         {
           "kind": "d2h",
           "bytes": 268435456,
-          "gbs_p50": 0.27,
+          "gbs_p50": 0.28,
           "n_reps": 3
         },
         {
           "kind": "d2d",
           "bytes": 268435456,
-          "gbs_p50": 64.84,
+          "gbs_p50": 64.83,
           "n_reps": 3
         }
       ]
@@ -129,15 +129,15 @@
           "n": 512,
           "k": 4096,
           "dtype": "f16",
-          "tflops_p50": 1.38,
-          "n_reps": 3
+          "tflops_p50": 1.51,
+          "n_reps": 5
         },
         {
           "m": 8192,
           "n": 512,
           "k": 8192,
           "dtype": "f16",
-          "tflops_p50": 1.38,
+          "tflops_p50": 1.57,
           "n_reps": 3
         }
       ],
@@ -145,19 +145,19 @@
         {
           "kind": "h2d",
           "bytes": 268435456,
-          "gbs_p50": 18.9,
+          "gbs_p50": 18.98,
           "n_reps": 3
         },
         {
           "kind": "d2h",
           "bytes": 268435456,
-          "gbs_p50": 19.77,
+          "gbs_p50": 19.8,
           "n_reps": 3
         },
         {
           "kind": "d2d",
           "bytes": 268435456,
-          "gbs_p50": 34.31,
+          "gbs_p50": 36.09,
           "n_reps": 3
         }
       ]
@@ -391,134 +391,134 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 42.37
+            "ms": 42.49
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 42.81
+            "ms": 42.7
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 24.66
+            "ms": 24.63
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 25.29
+            "ms": 24.98
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 45.64
+            "ms": 45.32
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 47.84
+            "ms": 48.04
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 48.72
+            "ms": 48.22
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 51.15
+            "ms": 49.87
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 51.81
+            "ms": 50.62
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 54.18
+            "ms": 52.99
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 54.77
+            "ms": 54.04
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 30.75
+            "ms": 30.74
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 30.91
+            "ms": 31.49
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 56.7
+            "ms": 57.19
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 59.04
+            "ms": 59.83
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 60.69
+            "ms": 59.75
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 63.6
+            "ms": 62.19
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 64.4
+            "ms": 62.62
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 197.26,
-            "tps_min": 197.26,
-            "tps_max": 197.26,
+            "tps_p50": 201.29,
+            "tps_min": 201.29,
+            "tps_max": 201.29,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 64,
-            "tps_p50": 221.67,
-            "tps_min": 221.67,
-            "tps_max": 221.67,
+            "tps_p50": 221.48,
+            "tps_min": 221.48,
+            "tps_max": 221.48,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 64,
-            "tps_p50": 233.37,
-            "tps_min": 233.37,
-            "tps_max": 233.37,
+            "tps_p50": 232.93,
+            "tps_min": 232.93,
+            "tps_max": 232.93,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 247.98,
-            "tps_min": 247.98,
-            "tps_max": 247.98,
+            "tps_p50": 248.47,
+            "tps_min": 248.47,
+            "tps_max": 248.47,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 41.637,
-          "slope_ms_per_1k": 2.9079,
-          "r2": 0.99204,
-          "resid_max_pct": 2.48,
+          "intercept_ms": 41.538,
+          "slope_ms_per_1k": 2.7912,
+          "r2": 0.99184,
+          "resid_max_pct": 2.17,
           "n_points": 14
         },
         "ubatch": [
@@ -526,22 +526,22 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 49.95,
-            "full_ms_fitted": 44.61,
-            "penalty_pct": 11.96
+            "parts_ms": 49.61,
+            "full_ms_fitted": 44.4,
+            "penalty_pct": 11.74
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 61.66,
-            "full_ms_fitted": 56.53,
-            "penalty_pct": 9.08
+            "parts_ms": 62.23,
+            "full_ms_fitted": 55.83,
+            "penalty_pct": 11.47
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 9165.1,
-        "shader_bytes": 5496302,
+        "warmup_ms": 9193.85,
+        "shader_bytes": 5496299,
         "shader_cache": "redirected"
       },
       "job": {
@@ -549,58 +549,58 @@
         "task": "summarize-large",
         "metrics": {
           "cold_start_ms": [
-            383.18,
-            383.18
+            384.27,
+            384.27
           ],
           "model_load_ms": [
-            366.61,
-            366.61
+            362.27,
+            362.27
           ],
           "context_init_ms": [
-            10.49,
-            10.49
+            10.58,
+            10.58
           ],
           "warmup_ms": [
-            11.64,
-            11.64
+            11.55,
+            11.55
           ],
           "ttft_ms": [
-            140.57,
-            144.14
+            141.23,
+            144.84
           ],
           "decode_tps": [
-            244.62,
-            245.57
+            245.01,
+            245.97
           ],
           "prefill_tps": [
-            11087.26,
-            11360.36
+            11033.67,
+            11310.14
           ],
           "completion_ms": [
-            1183.91,
-            1184.17
+            1182.76,
+            1183.23
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            703.9,
-            703.9
+            703.6,
+            703.6
           ],
           "prefill_vram_peak_mb": [
             2707.3,
             2707.3
           ],
           "decode_rss_peak_mb": [
-            703.9,
-            703.9
+            704.6,
+            704.6
           ],
           "decode_vram_peak_mb": [
             2707.3,
             2707.3
           ],
           "decode_rss_sustained_mb": [
-            703.9,
-            703.9
+            703.6,
+            703.6
           ],
           "decode_vram_sustained_mb": [
             2707.3,
@@ -839,99 +839,99 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 4597.64
+            "ms": 4615.26
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 4827.14
+            "ms": 4842.83
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 2572.13
+            "ms": 2568.94
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 2661.14
+            "ms": 2657.57
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 5529.99
+            "ms": 5544.27
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 5881.67
+            "ms": 5893.78
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 6239.08
+            "ms": 6250.81
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 6594.26
+            "ms": 6606.33
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 6947.68
+            "ms": 6962.95
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 7306.23
+            "ms": 7311.1
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 7666.41
+            "ms": 7669.76
           }
         ],
         "decode": [
           {
             "kv_fill": 5120,
-            "tokens": 54,
-            "tps_p50": 10.61,
-            "tps_min": 10.61,
-            "tps_max": 10.61,
+            "tokens": 53,
+            "tps_p50": 10.6,
+            "tps_min": 10.6,
+            "tps_max": 10.6,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 56,
-            "tps_p50": 11.12,
-            "tps_min": 11.12,
-            "tps_max": 11.12,
+            "tps_p50": 11.1,
+            "tps_min": 11.1,
+            "tps_max": 11.1,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 62,
-            "tps_p50": 12.31,
-            "tps_min": 12.31,
-            "tps_max": 12.31,
+            "tps_p50": 12.29,
+            "tps_min": 12.29,
+            "tps_max": 12.29,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 13.77,
-            "tps_min": 13.77,
-            "tps_max": 13.77,
+            "tps_p50": 13.73,
+            "tps_min": 13.73,
+            "tps_max": 13.73,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 4520.615,
-          "slope_ms_per_1k": 676.9878,
+          "intercept_ms": 4538.645,
+          "slope_ms_per_1k": 674.4768,
           "r2": 0.99888,
-          "resid_max_pct": 1.25,
+          "resid_max_pct": 1.24,
           "n_points": 9
         },
         "ubatch": [
@@ -939,13 +939,13 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 5233.27,
-            "full_ms_fitted": 5213.85,
-            "penalty_pct": 0.37
+            "parts_ms": 5226.51,
+            "full_ms_fitted": 5229.31,
+            "penalty_pct": -0.05
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 12957.77,
+        "warmup_ms": 12968.27,
         "shader_bytes": 4307255,
         "shader_cache": "redirected"
       },
@@ -955,54 +955,54 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            538.05,
-            538.05
+            532.5,
+            532.5
           ],
           "context_init_ms": [
-            19.6,
-            19.6
+            19.62,
+            19.62
           ],
           "warmup_ms": [
-            145.31,
-            145.31
+            145.36,
+            145.36
           ],
           "ttft_ms": [
-            14909.74,
-            14909.74
+            14930.97,
+            14930.97
           ],
           "decode_tps": [
-            12.82,
-            12.82
+            12.69,
+            12.69
           ],
           "prefill_tps": [
-            104.3,
-            104.3
+            104.15,
+            104.15
           ],
           "completion_ms": [
-            34884.38,
-            34884.38
+            35112.27,
+            35112.27
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            720.0,
-            720.0
+            720.1,
+            720.1
           ],
           "prefill_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_peak_mb": [
-            721.2,
-            721.2
+            721.3,
+            721.3
           ],
           "decode_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_sustained_mb": [
-            721.2,
-            721.2
+            721.3,
+            721.3
           ],
           "decode_vram_sustained_mb": [
             11.8,
@@ -1241,134 +1241,134 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 1239.86
+            "ms": 1072.5
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 1303.26
+            "ms": 1163.64
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 692.03
+            "ms": 606.46
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 716.56
+            "ms": 628.78
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 3476.49
+            "ms": 1312.91
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 5226.64
+            "ms": 1391.71
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 2216.79
+            "ms": 1467.47
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 3666.6
+            "ms": 1543.89
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 2760.77
+            "ms": 1625.27
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 2347.9
+            "ms": 1703.61
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 2294.86
+            "ms": 1779.63
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 1154.81
+            "ms": 926.57
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 1152.77
+            "ms": 948.75
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 2304.57
+            "ms": 1965.6
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 2356.81
+            "ms": 2044.27
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 2460.53
+            "ms": 2100.11
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 2558.25
+            "ms": 2185.89
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 2690.25
+            "ms": 2342.07
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 15.3,
-            "tps_min": 15.3,
-            "tps_max": 15.3,
+            "tps_p50": 16.55,
+            "tps_min": 16.55,
+            "tps_max": 16.55,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 64,
-            "tps_p50": 18.7,
-            "tps_min": 18.7,
-            "tps_max": 18.7,
+            "tps_p50": 20.01,
+            "tps_min": 20.01,
+            "tps_max": 20.01,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 64,
-            "tps_p50": 21.35,
-            "tps_min": 21.35,
-            "tps_max": 21.35,
+            "tps_p50": 22.36,
+            "tps_min": 22.36,
+            "tps_max": 22.36,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 25.04,
-            "tps_min": 25.04,
-            "tps_max": 25.04,
+            "tps_p50": 25.42,
+            "tps_min": 25.42,
+            "tps_max": 25.42,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 2595.507,
-          "slope_ms_per_1k": 10.2445,
-          "r2": 0.00065,
-          "resid_max_pct": 99.02,
+          "intercept_ms": 1064.557,
+          "slope_ms_per_1k": 159.0489,
+          "r2": 0.99746,
+          "resid_max_pct": 3.31,
           "n_points": 14
         },
         "ubatch": [
@@ -1376,17 +1376,17 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 1408.59,
-            "full_ms_fitted": 2606.0,
-            "penalty_pct": -45.95
+            "parts_ms": 1235.24,
+            "full_ms_fitted": 1227.42,
+            "penalty_pct": 0.64
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 2307.58,
-            "full_ms_fitted": 2647.96,
-            "penalty_pct": -12.85
+            "parts_ms": 1875.32,
+            "full_ms_fitted": 1878.89,
+            "penalty_pct": -0.19
           }
         ],
         "thread_scaling": {
@@ -1395,40 +1395,40 @@
               {
                 "threads": 16,
                 "tokens": 128,
-                "ms": 267.55,
-                "tps": 478.42
+                "ms": 266.4,
+                "tps": 480.48
               },
               {
                 "threads": 8,
                 "tokens": 128,
-                "ms": 445.28,
-                "tps": 287.46
+                "ms": 439.37,
+                "tps": 291.33
               },
               {
                 "threads": 4,
                 "tokens": 128,
-                "ms": 805.54,
-                "tps": 158.9
+                "ms": 804.97,
+                "tps": 159.01
               },
               {
                 "threads": 2,
                 "tokens": 128,
-                "ms": 1639.56,
-                "tps": 78.07
+                "ms": 1560.57,
+                "tps": 82.02
               },
               {
                 "threads": 1,
                 "tokens": 128,
-                "ms": 3755.35,
-                "tps": 34.08
+                "ms": 3082.31,
+                "tps": 41.53
               }
             ],
             "fit": {
               "model": "amdahl",
-              "floor_ms": -64.011,
-              "scaled_ms": 3733.335,
-              "r2": 0.99392,
-              "resid_max_pct": 11.8,
+              "floor_ms": 63.47,
+              "scaled_ms": 3012.268,
+              "r2": 0.99991,
+              "resid_max_pct": 1.19,
               "n_points": 5
             }
           },
@@ -1438,44 +1438,44 @@
                 "threads": 16,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 22.01
+                "tps": 22.37
               },
               {
                 "threads": 8,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 21.3
+                "tps": 21.46
               },
               {
                 "threads": 4,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 19.59
+                "tps": 19.72
               },
               {
                 "threads": 2,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 13.49
+                "tps": 13.44
               },
               {
                 "threads": 1,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 8.26
+                "tps": 8.16
               }
             ],
             "fit": {
               "model": "saturating",
-              "rate_max_tps": 22.053,
-              "threads_scale": 2.0517,
-              "r2": 0.99516,
-              "resid_max_pct": 3.99,
+              "rate_max_tps": 22.357,
+              "threads_scale": 2.1109,
+              "r2": 0.99445,
+              "resid_max_pct": 4.25,
               "n_points": 5
             }
           }
         },
-        "warmup_ms": 3677.8,
+        "warmup_ms": 3016.74,
         "shader_bytes": 4194384,
         "shader_cache": "redirected"
       },
@@ -1485,48 +1485,48 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            2492.38,
-            2492.38
+            881.07,
+            881.07
           ],
           "context_init_ms": [
-            73.27,
-            73.27
+            27.13,
+            27.13
           ],
           "warmup_ms": [
-            264.92,
-            264.92
+            80.14,
+            80.14
           ],
           "ttft_ms": [
-            6171.37,
-            7751.63
+            3598.95,
+            3602.24
           ],
           "decode_tps": [
-            17.86,
-            17.94
+            22.72,
+            22.75
           ],
           "prefill_tps": [
-            269.67,
-            338.71
+            432.09,
+            432.48
           ],
           "completion_ms": [
-            20514.52,
-            22010.65
+            14864.62,
+            14876.26
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            2760.9,
-            2760.9
+            2760.7,
+            2760.7
           ],
           "prefill_vram_peak_mb": null,
           "decode_rss_peak_mb": [
-            2760.9,
-            2760.9
+            2760.7,
+            2760.7
           ],
           "decode_vram_peak_mb": null,
           "decode_rss_sustained_mb": [
-            2760.9,
-            2760.9
+            2760.7,
+            2760.7
           ],
           "decode_vram_sustained_mb": null
         },
@@ -1786,118 +1786,118 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 71.42
+            "ms": 72.47
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 70.03
+            "ms": 70.25
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 42.0
+            "ms": 42.02
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 42.07
+            "ms": 42.08
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 69.64
+            "ms": 70.49
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 70.2
+            "ms": 70.15
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 70.4
+            "ms": 70.67
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 70.4
+            "ms": 71.49
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 71.31
+            "ms": 71.92
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 71.84
+            "ms": 72.49
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 71.39
+            "ms": 72.86
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 42.27
+            "ms": 43.2
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 42.2
+            "ms": 43.22
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 72.55
+            "ms": 73.8
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 73.63
+            "ms": 73.89
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 74.08
+            "ms": 74.46
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 75.32
+            "ms": 75.61
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 75.36
+            "ms": 75.98
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 174.72,
-            "tps_min": 174.72,
-            "tps_max": 174.72,
+            "tps_p50": 171.76,
+            "tps_min": 171.76,
+            "tps_max": 171.76,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 182.92,
-            "tps_min": 182.92,
-            "tps_max": 182.92,
+            "tps_p50": 183.31,
+            "tps_min": 183.31,
+            "tps_max": 183.31,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 69.234,
-          "slope_ms_per_1k": 0.6926,
-          "r2": 0.78355,
-          "resid_max_pct": 3.04,
+          "intercept_ms": 69.894,
+          "slope_ms_per_1k": 0.6875,
+          "r2": 0.7731,
+          "resid_max_pct": 3.55,
           "n_points": 14
         },
         "ubatch": [
@@ -1905,22 +1905,22 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 84.07,
-            "full_ms_fitted": 69.94,
-            "penalty_pct": 20.2
+            "parts_ms": 84.1,
+            "full_ms_fitted": 70.6,
+            "penalty_pct": 19.13
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 84.47,
-            "full_ms_fitted": 72.78,
-            "penalty_pct": 16.06
+            "parts_ms": 86.42,
+            "full_ms_fitted": 73.41,
+            "penalty_pct": 17.72
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 12596.63,
-        "shader_bytes": 6077038,
+        "warmup_ms": 12313.71,
+        "shader_bytes": 6077019,
         "shader_cache": "redirected"
       },
       "job": {
@@ -1928,58 +1928,58 @@
         "task": "summarize-large",
         "metrics": {
           "cold_start_ms": [
-            493.41,
-            493.41
+            487.27,
+            487.27
           ],
           "model_load_ms": [
-            515.59,
-            515.59
+            475.43,
+            475.43
           ],
           "context_init_ms": [
-            18.41,
-            18.41
+            19.01,
+            19.01
           ],
           "warmup_ms": [
-            17.75,
-            17.75
+            17.76,
+            17.76
           ],
           "ttft_ms": [
-            226.8,
-            231.05
+            227.28,
+            232.12
           ],
           "decode_tps": [
-            183.66,
-            183.75
+            182.79,
+            183.0
           ],
           "prefill_tps": [
-            6968.4,
-            7092.65
+            6952.83,
+            7097.13
           ],
           "completion_ms": [
-            1616.36,
-            1621.1
+            1623.48,
+            1626.44
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            944.5,
-            944.5
+            944.4,
+            944.4
           ],
           "prefill_vram_peak_mb": [
             3434.7,
             3434.7
           ],
           "decode_rss_peak_mb": [
-            944.6,
-            944.6
+            944.5,
+            944.5
           ],
           "decode_vram_peak_mb": [
             3434.7,
             3434.7
           ],
           "decode_rss_sustained_mb": [
-            944.6,
-            944.6
+            944.4,
+            944.4
           ],
           "decode_vram_sustained_mb": [
             3434.7,
@@ -2242,73 +2242,73 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 7201.86
+            "ms": 7714.63
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 7262.6
+            "ms": 7748.08
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 3524.52
+            "ms": 3736.07
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 3558.94
+            "ms": 3767.25
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 7517.73
+            "ms": 7961.14
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 7613.93
+            "ms": 8098.89
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 7733.67
+            "ms": 8221.91
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 7916.52
+            "ms": 8350.88
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 8078.54
+            "ms": 8511.82
           }
         ],
         "decode": [
           {
             "kv_fill": 4096,
             "tokens": 44,
-            "tps_p50": 8.67,
-            "tps_min": 8.67,
-            "tps_max": 8.67,
+            "tps_p50": 8.64,
+            "tps_min": 8.64,
+            "tps_max": 8.64,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 46,
-            "tps_p50": 9.1,
-            "tps_min": 9.1,
-            "tps_max": 9.1,
+            "tps_p50": 9.08,
+            "tps_min": 9.08,
+            "tps_max": 9.08,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 7153.883,
-          "slope_ms_per_1k": 243.9653,
-          "r2": 0.98565,
-          "resid_max_pct": 0.66,
+          "intercept_ms": 7656.374,
+          "slope_ms_per_1k": 226.317,
+          "r2": 0.98436,
+          "resid_max_pct": 0.72,
           "n_points": 7
         },
         "ubatch": [
@@ -2316,13 +2316,13 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 7083.46,
-            "full_ms_fitted": 7403.7,
-            "penalty_pct": -4.33
+            "parts_ms": 7503.32,
+            "full_ms_fitted": 7888.12,
+            "penalty_pct": -4.88
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 19132.65,
+        "warmup_ms": 20343.91,
         "shader_bytes": 4340705,
         "shader_cache": "redirected"
       },
@@ -2332,54 +2332,54 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            696.48,
-            696.48
+            668.98,
+            668.98
           ],
           "context_init_ms": [
-            39.62,
-            39.62
+            38.57,
+            38.57
           ],
           "warmup_ms": [
-            237.43,
-            237.43
+            227.99,
+            227.99
           ],
           "ttft_ms": [
-            24345.04,
-            24345.04
+            24576.82,
+            24576.82
           ],
           "decode_tps": [
             8.92,
             8.92
           ],
           "prefill_tps": [
-            64.78,
-            64.78
+            64.17,
+            64.17
           ],
           "completion_ms": [
-            53032.34,
-            53032.34
+            53287.25,
+            53287.25
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            931.8,
-            931.8
+            931.7,
+            931.7
           ],
           "prefill_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_peak_mb": [
-            933.3,
-            933.3
+            933.2,
+            933.2
           ],
           "decode_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_sustained_mb": [
-            933.3,
-            933.3
+            933.2,
+            933.2
           ],
           "decode_vram_sustained_mb": [
             11.8,
@@ -2642,118 +2642,118 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 1958.5
+            "ms": 1956.93
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 1980.15
+            "ms": 1985.61
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 1002.43
+            "ms": 1004.22
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 1013.68
+            "ms": 1010.57
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 2038.53
+            "ms": 2054.56
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 2084.18
+            "ms": 2073.04
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 2099.64
+            "ms": 2125.73
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 2112.8
+            "ms": 2122.73
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 2184.09
+            "ms": 2142.16
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 2172.05
+            "ms": 2167.0
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 2210.02
+            "ms": 2191.97
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 1112.18
+            "ms": 1114.05
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 1117.79
+            "ms": 1120.31
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 2282.79
+            "ms": 2259.88
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 2324.45
+            "ms": 2273.88
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 2341.67
+            "ms": 2314.47
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 2382.32
+            "ms": 2353.23
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 2409.61
+            "ms": 2387.75
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 15.68,
-            "tps_min": 15.68,
-            "tps_max": 15.68,
+            "tps_p50": 15.61,
+            "tps_min": 15.61,
+            "tps_max": 15.61,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 17.25,
-            "tps_min": 17.25,
-            "tps_max": 17.25,
+            "tps_p50": 17.21,
+            "tps_min": 17.21,
+            "tps_max": 17.21,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 1950.103,
-          "slope_ms_per_1k": 59.3054,
-          "r2": 0.99332,
-          "resid_max_pct": 0.98,
+          "intercept_ms": 1961.24,
+          "slope_ms_per_1k": 53.3777,
+          "r2": 0.991,
+          "resid_max_pct": 1.28,
           "n_points": 14
         },
         "ubatch": [
@@ -2761,17 +2761,17 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 2016.11,
-            "full_ms_fitted": 2010.83,
-            "penalty_pct": 0.26
+            "parts_ms": 2014.79,
+            "full_ms_fitted": 2015.9,
+            "penalty_pct": -0.06
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 2229.97,
-            "full_ms_fitted": 2253.75,
-            "penalty_pct": -1.05
+            "parts_ms": 2234.36,
+            "full_ms_fitted": 2234.53,
+            "penalty_pct": -0.01
           }
         ],
         "thread_scaling": {
@@ -2780,40 +2780,40 @@
               {
                 "threads": 16,
                 "tokens": 128,
-                "ms": 499.25,
-                "tps": 256.38
+                "ms": 500.78,
+                "tps": 255.6
               },
               {
                 "threads": 8,
                 "tokens": 128,
-                "ms": 808.24,
-                "tps": 158.37
+                "ms": 811.28,
+                "tps": 157.78
               },
               {
                 "threads": 4,
                 "tokens": 128,
-                "ms": 1431.68,
-                "tps": 89.41
+                "ms": 1430.56,
+                "tps": 89.48
               },
               {
                 "threads": 2,
                 "tokens": 128,
-                "ms": 2754.78,
-                "tps": 46.46
+                "ms": 2747.6,
+                "tps": 46.59
               },
               {
                 "threads": 1,
                 "tokens": 128,
-                "ms": 5415.78,
-                "tps": 23.63
+                "ms": 5410.75,
+                "tps": 23.66
               }
             ],
             "fit": {
               "model": "amdahl",
-              "floor_ms": 144.744,
-              "scaled_ms": 5257.295,
-              "r2": 0.99988,
-              "resid_max_pct": 1.26,
+              "floor_ms": 146.345,
+              "scaled_ms": 5248.642,
+              "r2": 0.99985,
+              "resid_max_pct": 1.28,
               "n_points": 5
             }
           },
@@ -2822,7 +2822,7 @@
             "fit": null
           }
         },
-        "warmup_ms": 5188.92,
+        "warmup_ms": 5228.15,
         "shader_bytes": 4194384,
         "shader_cache": "redirected"
       },
@@ -2832,32 +2832,32 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            992.03,
-            992.03
+            978.05,
+            978.05
           ],
           "context_init_ms": [
-            18.6,
-            18.6
+            18.51,
+            18.51
           ],
           "warmup_ms": [
-            120.61,
-            120.61
+            121.46,
+            121.46
           ],
           "ttft_ms": [
-            6328.54,
-            6330.32
+            6322.06,
+            6328.6
           ],
           "decode_tps": [
-            16.73,
-            16.78
+            16.72,
+            16.74
           ],
           "prefill_tps": [
-            249.2,
-            249.27
+            249.45,
+            249.71
           ],
           "completion_ms": [
-            21629.97,
-            21676.36
+            21633.24,
+            21659.27
           ]
         },
         "memory": {
@@ -3145,32 +3145,32 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 40.63
+            "ms": 40.31
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 38.49
+            "ms": 38.53
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 25.99
+            "ms": 25.98
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 25.95
+            "ms": 25.93
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 40.88
+            "ms": 40.78
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 41.56
+            "ms": 41.52
           },
           {
             "context": 2560,
@@ -3180,12 +3180,12 @@
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 43.57
+            "ms": 43.58
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 44.52
+            "ms": 44.54
           },
           {
             "context": 4096,
@@ -3195,84 +3195,84 @@
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 46.46
+            "ms": 46.59
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 30.72
+            "ms": 30.7
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 30.61
+            "ms": 30.62
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 48.61
+            "ms": 48.43
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 49.38
+            "ms": 49.35
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 50.82
+            "ms": 50.71
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 51.41
+            "ms": 51.44
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 52.35
+            "ms": 52.31
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 207.14,
-            "tps_min": 207.14,
-            "tps_max": 207.14,
+            "tps_p50": 208.09,
+            "tps_min": 208.09,
+            "tps_max": 208.09,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 64,
-            "tps_p50": 215.41,
-            "tps_min": 215.41,
-            "tps_max": 215.41,
+            "tps_p50": 214.43,
+            "tps_min": 214.43,
+            "tps_max": 214.43,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 64,
-            "tps_p50": 225.57,
-            "tps_min": 225.57,
-            "tps_max": 225.57,
+            "tps_p50": 224.51,
+            "tps_min": 224.51,
+            "tps_max": 224.51,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 232.27,
-            "tps_min": 232.27,
-            "tps_max": 232.27,
+            "tps_p50": 232.12,
+            "tps_min": 232.12,
+            "tps_max": 232.12,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 38.445,
-          "slope_ms_per_1k": 1.7817,
-          "r2": 0.97381,
-          "resid_max_pct": 4.8,
+          "intercept_ms": 38.363,
+          "slope_ms_per_1k": 1.7917,
+          "r2": 0.97953,
+          "resid_max_pct": 4.28,
           "n_points": 14
         },
         "ubatch": [
@@ -3280,21 +3280,21 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 51.94,
-            "full_ms_fitted": 40.27,
-            "penalty_pct": 28.98
+            "parts_ms": 51.91,
+            "full_ms_fitted": 40.2,
+            "penalty_pct": 29.14
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 61.33,
-            "full_ms_fitted": 47.57,
-            "penalty_pct": 28.93
+            "parts_ms": 61.32,
+            "full_ms_fitted": 47.54,
+            "penalty_pct": 29.0
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 16459.54,
+        "warmup_ms": 16347.14,
         "shader_bytes": 6502896,
         "shader_cache": "redirected"
       },
@@ -3303,58 +3303,58 @@
         "task": "summarize-large",
         "metrics": {
           "cold_start_ms": [
-            650.63,
-            650.63
+            640.76,
+            640.76
           ],
           "model_load_ms": [
-            683.15,
-            683.15
+            638.21,
+            638.21
           ],
           "context_init_ms": [
-            16.63,
-            16.63
+            16.11,
+            16.11
           ],
           "warmup_ms": [
-            16.8,
-            16.8
+            16.76,
+            16.76
           ],
           "ttft_ms": [
-            127.6,
-            131.85
+            127.82,
+            132.26
           ],
           "decode_tps": [
-            230.44,
-            230.59
+            230.27,
+            230.51
           ],
           "prefill_tps": [
-            12238.7,
-            12631.8
+            12220.58,
+            12628.46
           ],
           "completion_ms": [
-            1235.13,
-            1238.66
+            1237.13,
+            1239.46
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            2289.7,
-            2289.7
+            2289.5,
+            2289.5
           ],
           "prefill_vram_peak_mb": [
             2198.6,
             2198.6
           ],
           "decode_rss_peak_mb": [
-            2289.8,
-            2289.8
+            2289.7,
+            2289.7
           ],
           "decode_vram_peak_mb": [
             2198.6,
             2198.6
           ],
           "decode_rss_sustained_mb": [
-            2289.7,
-            2289.7
+            2289.6,
+            2289.6
           ],
           "decode_vram_sustained_mb": [
             2198.6,
@@ -3629,124 +3629,124 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 3292.42
+            "ms": 3286.01
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 3397.58
+            "ms": 3390.21
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 1740.83
+            "ms": 1758.9
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 1773.06
+            "ms": 1783.46
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 3731.15
+            "ms": 3766.86
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 3953.23
+            "ms": 3925.35
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 4120.31
+            "ms": 4131.77
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 4296.38
+            "ms": 4295.55
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 4477.04
+            "ms": 4442.83
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 4658.09
+            "ms": 4609.53
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 4779.8
+            "ms": 4790.27
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 2452.08
+            "ms": 2492.88
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 2502.61
+            "ms": 2506.74
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 5188.81
+            "ms": 5150.04
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 5337.13
+            "ms": 5322.03
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 5503.88
+            "ms": 5461.43
           }
         ],
         "decode": [
           {
             "kv_fill": 7168,
             "tokens": 64,
-            "tps_p50": 15.08,
-            "tps_min": 15.08,
-            "tps_max": 15.08,
+            "tps_p50": 15.07,
+            "tps_min": 15.07,
+            "tps_max": 15.07,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 64,
-            "tps_p50": 15.62,
-            "tps_min": 15.62,
-            "tps_max": 15.62,
+            "tps_p50": 15.6,
+            "tps_min": 15.6,
+            "tps_max": 15.6,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 64,
-            "tps_p50": 16.09,
-            "tps_min": 16.09,
-            "tps_max": 16.09,
+            "tps_p50": 16.08,
+            "tps_min": 16.08,
+            "tps_max": 16.08,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 16.79,
-            "tps_min": 16.79,
-            "tps_max": 16.79,
+            "tps_p50": 16.76,
+            "tps_min": 16.76,
+            "tps_max": 16.76,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 3249.628,
-          "slope_ms_per_1k": 339.7025,
-          "r2": 0.99889,
-          "resid_max_pct": 0.97,
+          "intercept_ms": 3255.333,
+          "slope_ms_per_1k": 333.9568,
+          "r2": 0.99928,
+          "resid_max_pct": 0.82,
           "n_points": 12
         },
         "ubatch": [
@@ -3754,21 +3754,21 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 3513.89,
-            "full_ms_fitted": 3597.48,
-            "penalty_pct": -2.32
+            "parts_ms": 3542.36,
+            "full_ms_fitted": 3597.3,
+            "penalty_pct": -1.53
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 4954.69,
-            "full_ms_fitted": 4988.9,
-            "penalty_pct": -0.69
+            "parts_ms": 4999.62,
+            "full_ms_fitted": 4965.19,
+            "penalty_pct": 0.69
           }
         ],
         "thread_scaling": null,
-        "warmup_ms": 9348.03,
+        "warmup_ms": 9359.74,
         "shader_bytes": 4390501,
         "shader_cache": "redirected"
       },
@@ -3778,54 +3778,54 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            794.06,
-            794.06
+            737.76,
+            737.76
           ],
           "context_init_ms": [
-            10.72,
-            10.72
+            10.42,
+            10.42
           ],
           "warmup_ms": [
-            120.14,
-            120.14
+            119.97,
+            119.97
           ],
           "ttft_ms": [
-            10283.7,
-            10329.18
+            10276.73,
+            10332.65
           ],
           "decode_tps": [
-            16.68,
-            16.68
+            16.66,
+            16.66
           ],
           "prefill_tps": [
-            151.22,
-            151.89
+            151.32,
+            152.15
           ],
           "completion_ms": [
-            25633.7,
-            25684.94
+            25639.62,
+            25694.6
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            2305.2,
-            2305.2
+            2305.1,
+            2305.1
           ],
           "prefill_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_peak_mb": [
-            2305.2,
-            2305.2
+            2305.1,
+            2305.1
           ],
           "decode_vram_peak_mb": [
             11.8,
             11.8
           ],
           "decode_rss_sustained_mb": [
-            2305.2,
-            2305.2
+            2305.1,
+            2305.1
           ],
           "decode_vram_sustained_mb": [
             11.8,
@@ -4100,134 +4100,134 @@
           {
             "context": 0,
             "tokens": 512,
-            "ms": 806.97
+            "ms": 805.03
           },
           {
             "context": 512,
             "tokens": 512,
-            "ms": 847.1
+            "ms": 845.45
           },
           {
             "context": 1024,
             "tokens": 256,
-            "ms": 475.14
+            "ms": 472.49
           },
           {
             "context": 1280,
             "tokens": 256,
-            "ms": 483.47
+            "ms": 483.74
           },
           {
             "context": 1536,
             "tokens": 512,
-            "ms": 889.72
+            "ms": 890.74
           },
           {
             "context": 2048,
             "tokens": 512,
-            "ms": 910.57
+            "ms": 912.16
           },
           {
             "context": 2560,
             "tokens": 512,
-            "ms": 930.65
+            "ms": 930.34
           },
           {
             "context": 3072,
             "tokens": 512,
-            "ms": 950.49
+            "ms": 951.07
           },
           {
             "context": 3584,
             "tokens": 512,
-            "ms": 973.55
+            "ms": 971.35
           },
           {
             "context": 4096,
             "tokens": 512,
-            "ms": 993.74
+            "ms": 990.83
           },
           {
             "context": 4608,
             "tokens": 512,
-            "ms": 1014.14
+            "ms": 1011.46
           },
           {
             "context": 5120,
             "tokens": 256,
-            "ms": 629.31
+            "ms": 624.86
           },
           {
             "context": 5376,
             "tokens": 256,
-            "ms": 639.47
+            "ms": 635.43
           },
           {
             "context": 5632,
             "tokens": 512,
-            "ms": 1054.76
+            "ms": 1052.19
           },
           {
             "context": 6144,
             "tokens": 512,
-            "ms": 1073.68
+            "ms": 1091.39
           },
           {
             "context": 6656,
             "tokens": 512,
-            "ms": 1099.22
+            "ms": 1096.88
           },
           {
             "context": 7168,
             "tokens": 512,
-            "ms": 1116.3
+            "ms": 1115.16
           },
           {
             "context": 7680,
             "tokens": 512,
-            "ms": 1137.9
+            "ms": 1135.19
           }
         ],
         "decode": [
           {
             "kv_fill": 8192,
             "tokens": 64,
-            "tps_p50": 29.64,
-            "tps_min": 29.64,
-            "tps_max": 29.64,
+            "tps_p50": 29.62,
+            "tps_min": 29.62,
+            "tps_max": 29.62,
             "n_reps": 1
           },
           {
             "kv_fill": 4096,
             "tokens": 64,
-            "tps_p50": 31.17,
-            "tps_min": 31.17,
-            "tps_max": 31.17,
+            "tps_p50": 30.92,
+            "tps_min": 30.92,
+            "tps_max": 30.92,
             "n_reps": 1
           },
           {
             "kv_fill": 2048,
             "tokens": 64,
-            "tps_p50": 32.44,
-            "tps_min": 32.44,
-            "tps_max": 32.44,
+            "tps_p50": 32.51,
+            "tps_min": 32.51,
+            "tps_max": 32.51,
             "n_reps": 1
           },
           {
             "kv_fill": 0,
             "tokens": 64,
-            "tps_p50": 34.04,
-            "tps_min": 34.04,
-            "tps_max": 34.04,
+            "tps_p50": 34.32,
+            "tps_min": 34.32,
+            "tps_max": 34.32,
             "n_reps": 1
           }
         ],
         "fit": {
           "width": 512,
-          "intercept_ms": 821.793,
-          "slope_ms_per_1k": 41.4802,
-          "r2": 0.99768,
-          "resid_max_pct": 1.5,
+          "intercept_ms": 820.79,
+          "slope_ms_per_1k": 41.7423,
+          "r2": 0.99552,
+          "resid_max_pct": 1.6,
           "n_points": 14
         },
         "ubatch": [
@@ -4235,17 +4235,17 @@
             "context": 1024,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 958.61,
-            "full_ms_fitted": 864.27,
-            "penalty_pct": 10.92
+            "parts_ms": 956.23,
+            "full_ms_fitted": 863.53,
+            "penalty_pct": 10.73
           },
           {
             "context": 5120,
             "width": 256,
             "n_parts": 2,
-            "parts_ms": 1268.78,
-            "full_ms_fitted": 1034.17,
-            "penalty_pct": 22.69
+            "parts_ms": 1260.29,
+            "full_ms_fitted": 1034.51,
+            "penalty_pct": 21.82
           }
         ],
         "thread_scaling": {
@@ -4254,40 +4254,40 @@
               {
                 "threads": 16,
                 "tokens": 128,
-                "ms": 212.22,
-                "tps": 603.15
+                "ms": 211.09,
+                "tps": 606.38
               },
               {
                 "threads": 8,
                 "tokens": 128,
-                "ms": 316.5,
-                "tps": 404.42
+                "ms": 313.92,
+                "tps": 407.75
               },
               {
                 "threads": 4,
                 "tokens": 128,
-                "ms": 562.06,
-                "tps": 227.73
+                "ms": 559.86,
+                "tps": 228.63
               },
               {
                 "threads": 2,
                 "tokens": 128,
-                "ms": 1100.11,
-                "tps": 116.35
+                "ms": 1090.72,
+                "tps": 117.35
               },
               {
                 "threads": 1,
                 "tokens": 128,
-                "ms": 2163.71,
-                "tps": 59.16
+                "ms": 2149.37,
+                "tps": 59.55
               }
             ],
             "fit": {
               "model": "amdahl",
-              "floor_ms": 57.787,
-              "scaled_ms": 2098.406,
-              "r2": 0.99958,
-              "resid_max_pct": 2.67,
+              "floor_ms": 57.521,
+              "scaled_ms": 2083.795,
+              "r2": 0.99959,
+              "resid_max_pct": 2.7,
               "n_points": 5
             }
           },
@@ -4297,44 +4297,44 @@
                 "threads": 16,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 32.49
+                "tps": 32.39
               },
               {
                 "threads": 8,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 31.12
+                "tps": 31.3
               },
               {
                 "threads": 4,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 30.25
+                "tps": 30.0
               },
               {
                 "threads": 2,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 20.42
+                "tps": 20.33
               },
               {
                 "threads": 1,
                 "kv_fill": 2048,
                 "tokens": 16,
-                "tps": 12.71
+                "tps": 12.59
               }
             ],
             "fit": {
               "model": "saturating",
-              "rate_max_tps": 32.522,
-              "threads_scale": 1.9162,
-              "r2": 0.98427,
-              "resid_max_pct": 6.93,
+              "rate_max_tps": 32.528,
+              "threads_scale": 1.9402,
+              "r2": 0.98738,
+              "resid_max_pct": 6.36,
               "n_points": 5
             }
           }
         },
-        "warmup_ms": 2262.58,
+        "warmup_ms": 2246.67,
         "shader_bytes": 4194384,
         "shader_cache": "redirected"
       },
@@ -4344,48 +4344,48 @@
         "metrics": {
           "cold_start_ms": null,
           "model_load_ms": [
-            1225.51,
-            1225.51
+            1202.4,
+            1202.4
           ],
           "context_init_ms": [
-            7.32,
-            7.32
+            7.21,
+            7.21
           ],
           "warmup_ms": [
-            61.23,
-            61.23
+            61.8,
+            61.8
           ],
           "ttft_ms": [
-            2649.85,
-            2675.83
+            2633.6,
+            2640.39
           ],
           "decode_tps": [
-            32.38,
-            32.49
+            32.57,
+            32.58
           ],
           "prefill_tps": [
-            586.94,
-            592.69
+            590.51,
+            592.03
           ],
           "completion_ms": [
-            10556.56,
-            10609.79
+            10494.4,
+            10498.58
           ]
         },
         "memory": {
           "prefill_rss_peak_mb": [
-            3848.7,
-            3848.7
+            3848.5,
+            3848.5
           ],
           "prefill_vram_peak_mb": null,
           "decode_rss_peak_mb": [
-            3848.7,
-            3848.7
+            3848.5,
+            3848.5
           ],
           "decode_vram_peak_mb": null,
           "decode_rss_sustained_mb": [
-            3848.7,
-            3848.7
+            3848.5,
+            3848.5
           ],
           "decode_vram_sustained_mb": null
         },
