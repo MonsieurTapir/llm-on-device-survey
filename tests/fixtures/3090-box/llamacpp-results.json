@@ -1,0 +1,461 @@
+{
+  "schema_version": "1",
+  "backend": "llamacpp",
+  "machine": {
+    "host": "3090-box",
+    "os": "linux",
+    "cpu": "AMD Ryzen 9 5950X 16-Core Processor",
+    "cpu_cores": 16,
+    "cpu_threads": 32,
+    "gpus": [
+      "NVIDIA GeForce RTX 3090"
+    ],
+    "memory": {
+      "total_gb": 64.0,
+      "channels": 2,
+      "configured_mts": 3200,
+      "rated_mts": 3600,
+      "rank": 2,
+      "dimms": [
+        {
+          "size_gb": 32,
+          "configured_mts": 3200,
+          "rated_mts": 3600,
+          "rank": 2
+        },
+        {
+          "size_gb": 32,
+          "configured_mts": 3200,
+          "rated_mts": 3600,
+          "rank": 2
+        }
+      ]
+    }
+  },
+  "job_spawns": 2,
+  "probes": [
+    {
+      "provider": "cuda:0",
+      "device": "NVIDIA GeForce RTX 3090",
+      "status": "ok",
+      "gemm": [
+        {
+          "m": 4096,
+          "n": 512,
+          "k": 4096,
+          "dtype": "f16",
+          "tflops_p50": 55.2,
+          "n_reps": 3
+        }
+      ],
+      "copy": [
+        {
+          "kind": "d2d",
+          "bytes": 268435456,
+          "gbs_p50": 800.1,
+          "n_reps": 3
+        },
+        {
+          "kind": "h2d",
+          "bytes": 268435456,
+          "gbs_p50": 22.0,
+          "n_reps": 3
+        }
+      ],
+      "threads": {
+        "decode": 16,
+        "batch": 16
+      }
+    }
+  ],
+  "runs": [
+    {
+      "provider": "cuda:0",
+      "device": "NVIDIA GeForce RTX 3090",
+      "model": "qwen3-4B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "nvml",
+      "geometry": {
+        "n_layer": 2,
+        "n_embd": 64,
+        "n_head": 4,
+        "n_head_kv": 2,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 4096,
+        "n_params": 1000000,
+        "file_bytes": 600000,
+        "context": {
+          "n_ctx": 2048,
+          "n_batch": 2048,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 100000,
+            "bytes": 60000
+          },
+          "body": {
+            "params": 900000,
+            "bytes": 540000
+          },
+          "head": {
+            "params": 0,
+            "bytes": 0
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CUDA0",
+            "model_bytes": 540000,
+            "context_bytes": 4096,
+            "compute_bytes": 1024
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CUDA0",
+                "model_bytes": 500000000,
+                "context_bytes": 37500000,
+                "compute_bytes": 40000000
+              },
+              {
+                "name": "CUDA_Host",
+                "model_bytes": 100000000,
+                "context_bytes": 0,
+                "compute_bytes": 10000000
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CUDA0",
+                "model_bytes": 500000000,
+                "context_bytes": 150000000,
+                "compute_bytes": 40000000
+              },
+              {
+                "name": "CUDA_Host",
+                "model_bytes": 100000000,
+                "context_bytes": 0,
+                "compute_bytes": 10000000
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CUDA0",
+                "model_bytes": 500000000,
+                "context_bytes": 600000000,
+                "compute_bytes": 40000000
+              },
+              {
+                "name": "CUDA_Host",
+                "model_bytes": 100000000,
+                "context_bytes": 0,
+                "compute_bytes": 10000000
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 100.0
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 106.14
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 60.07
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 60.07
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 118.43
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 124.58
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 130.72
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 136.86
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 143.01
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 80.0,
+            "tps_min": 78.0,
+            "tps_max": 82.0,
+            "n_reps": 3
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 75.0,
+            "tps_min": 74.0,
+            "tps_max": 76.0,
+            "n_reps": 3
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 99.998,
+          "slope_ms_per_1k": 12.0005,
+          "r2": 1.0,
+          "resid_max_pct": 0.0,
+          "n_points": 7
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 120.14,
+            "full_ms_fitted": 112.29,
+            "penalty_pct": 6.99
+          }
+        ],
+        "warmup_ms": 1830.5,
+        "shader_bytes": 5481105,
+        "shader_cache": "redirected",
+        "thread_scaling": null
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            5000,
+            5000
+          ],
+          "model_load_ms": [
+            900,
+            950
+          ],
+          "context_init_ms": [
+            100,
+            120
+          ],
+          "warmup_ms": [
+            50,
+            60
+          ],
+          "ttft_ms": [
+            700,
+            750
+          ],
+          "decode_tps": [
+            80.0,
+            75.0
+          ],
+          "prefill_tps": null,
+          "completion_ms": [
+            4000,
+            4200
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            1500,
+            1550
+          ],
+          "prefill_vram_peak_mb": [
+            1600.0,
+            1600.0
+          ],
+          "decode_rss_peak_mb": [
+            1300,
+            1350
+          ],
+          "decode_vram_peak_mb": [
+            1700.0,
+            1700.0
+          ],
+          "decode_rss_sustained_mb": [
+            1200,
+            1250
+          ],
+          "decode_vram_sustained_mb": [
+            1650.0,
+            1650.0
+          ]
+        },
+        "sample_completions": [
+          "The document describes ..."
+        ]
+      },
+      "threads": {
+        "decode": 16,
+        "batch": 16
+      }
+    },
+    {
+      "provider": "cuda:0",
+      "device": "NVIDIA GeForce RTX 3090",
+      "model": "gemma4-E4B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "nvml",
+      "geometry": {
+        "n_layer": 3,
+        "n_embd": 64,
+        "n_head": 4,
+        "n_head_kv": 2,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 4096,
+        "n_params": 1000000,
+        "file_bytes": 600000,
+        "context": {
+          "n_ctx": 2048,
+          "n_batch": 2048,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 100000,
+            "bytes": 60000
+          },
+          "body": {
+            "params": 900000,
+            "bytes": 540000
+          },
+          "head": {
+            "params": 0,
+            "bytes": 0
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CUDA0",
+            "model_bytes": 540000,
+            "context_bytes": 4096,
+            "compute_bytes": 1024
+          }
+        ]
+      },
+      "sweep": {
+        "status": "too_slow",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 9000.0
+          }
+        ],
+        "decode": [],
+        "fit": null,
+        "ubatch": [],
+        "warmup_ms": 240.0,
+        "shader_bytes": 4096,
+        "shader_cache": "redirected",
+        "thread_scaling": null
+      },
+      "job": {
+        "status": "too_slow",
+        "task": "summarize-large"
+      },
+      "threads": {
+        "decode": 16,
+        "batch": 16
+      }
+    },
+    {
+      "provider": "cuda:0",
+      "device": "NVIDIA GeForce RTX 3090",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "n/a",
+      "geometry": null,
+      "sweep": {
+        "status": "errored",
+        "prefill": [],
+        "decode": [],
+        "fit": null,
+        "ubatch": [],
+        "warmup_ms": null,
+        "shader_bytes": null,
+        "shader_cache": "redirected",
+        "thread_scaling": null
+      },
+      "job": {
+        "status": "errored",
+        "task": "summarize-large"
+      },
+      "threads": {
+        "decode": 16,
+        "batch": 16
+      }
+    }
+  ]
+}

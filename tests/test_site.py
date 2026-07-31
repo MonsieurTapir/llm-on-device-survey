@@ -1,0 +1,1532 @@
+"""The site builder renders one self-contained, data-first page — and hostile
+submission strings can never reach an executable position: HTML context is
+autoescaped, spec islands go through `tojson` (`<` → \\u003c), so a payload
+that tries to terminate a script element survives only as inert text."""
+
+import json
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from analysis import (
+    load_memory,
+    load_results,
+    load_sweeps,
+    load_thread_scaling,
+    site,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures"
+PAYLOAD = "</script><script>alert(1)</script>"
+
+
+def _build(tmp_path, published=FIXTURES):
+    cache = tmp_path / "vega"
+    cache.mkdir(exist_ok=True)
+    for name, version in site.VEGA_LIBS:  # stubs: the test never fetches
+        (cache / f"{name}@{version}.min.js").write_text("/* stub */")
+    out = tmp_path / "report.html"
+    site.build(published, out, vega_cache=cache)
+    return out.read_text()
+
+
+def test_build_renders_grid_curves_and_strict_json(tmp_path):
+    h = _build(tmp_path)
+    assert "{{" not in h  # no unrendered template
+    for anchor in (
+        'data-spec="grid"',
+        "Cost curves",
+        "Machines",
+        'data-spec="launch"',
+        "First launch",
+        'data-spec="accuracy"',
+        "How accurate are those predictions?",
+        'data-spec="memory-footprint"',
+        'data-spec="memory-job"',
+        "cmd-bash",
+        "cmd-ps",
+        'button class="copy"',
+    ):
+        assert anchor in h
+    islands = re.findall(r'<script type="application/json"[^>]*>(.*?)</script>', h, re.S)
+    assert islands, "no spec islands rendered"
+    for body in islands:
+        json.loads(body)  # strict — raises on NaN/Infinity
+
+
+def _color_encodings(node) -> list[dict]:
+    """Every scaled `color` encoding anywhere in a vega-lite spec."""
+    if isinstance(node, list):
+        return [c for item in node for c in _color_encodings(item)]
+    if not isinstance(node, dict):
+        return []
+    found = [c for value in node.values() for c in _color_encodings(value)]
+    color = node.get("color")
+    if isinstance(color, dict) and "scale" in color:
+        found.append(color)
+    return found
+
+
+def test_one_hue_per_device_class_across_every_chart(tmp_path):
+    """Hue means device class, and only that: every chart on the page colors on
+    `dev_class` through the same fixed three-entry mapping, so the palette never
+    shifts with the shelf and never runs out as lanes accumulate. Which lane a
+    mark is stays with the axis label and the hover."""
+    h = _build(tmp_path)
+    islands = {
+        m.group(1): json.loads(m.group(2))
+        for m in re.finditer(
+            r'<script type="application/json" data-island="([^"]+)">(.*?)</script>', h, re.S
+        )
+    }
+    assert {"grid", "launch", "curve-ttft", "curve-decode"} <= islands.keys()
+
+    for name, spec in islands.items():
+        encodings = _color_encodings(spec)
+        assert encodings, f"{name} colors on nothing"
+        for color in encodings:
+            assert color["field"] == "dev_class", f"{name} colors on {color['field']}"
+            assert color["scale"] == site._class_scale()
+    assert list(site._class_scale()["domain"]) == list(site.CLASSES)
+
+
+def _tooltips(node) -> list[list[dict]]:
+    """Every tooltip encoding anywhere in a vega-lite spec."""
+    if isinstance(node, list):
+        return [t for item in node for t in _tooltips(item)]
+    if not isinstance(node, dict):
+        return []
+    found = [t for value in node.values() for t in _tooltips(value)]
+    tip = node.get("tooltip")
+    if isinstance(tip, list):
+        found.append(tip)
+    return found
+
+
+# Identity a tooltip may never spread over separate rows: `who` is the one row
+# that names a mark's lane and machine, and the rest is what the control row is
+# currently scoped to.
+IDENTITY = {"lane", "machine", "device", "dev_class", "model", "quant", "backend"}
+
+
+def test_every_tooltip_leads_with_who_and_repeats_nothing_else(tmp_path):
+    """Color says only the device class, so the hover is where a mark names its
+    silicon: every tooltip opens with the one `who` row (lane — machine), then
+    carries only what the mark cannot show — numbers, and why a number is marked
+    or missing. The raw identity fields never ride along as extra rows."""
+    h = _build(tmp_path)
+    islands = {
+        m.group(1): json.loads(m.group(2))
+        for m in re.finditer(
+            r'<script type="application/json" data-island="([^"]+)">(.*?)</script>', h, re.S
+        )
+    }
+    assert len(islands) >= 6
+    for name, spec in islands.items():
+        tips = _tooltips(spec)
+        assert tips, f"{name} has no tooltip at all"
+        for tip in tips:
+            fields = {entry["field"] for entry in tip}
+            assert tip[0]["field"] == "who", f"{name} hover does not open with its lane"
+            assert not fields & IDENTITY, f"{name} hover repeats {fields & IDENTITY}"
+            # The longest list on the page is the launch chart's compile phase: the
+            # identity row, the phase, its seconds, and the estimate's arithmetic.
+            assert len(fields) <= 7, f"{name} hover carries {len(fields)} fields"
+
+
+def _grid_columns(html: str) -> list[dict]:
+    island = re.search(
+        r'<script type="application/json" data-island="grid">(.*?)</script>', html, re.S
+    )
+    assert island, "no grid island rendered"
+    return json.loads(island.group(1))["hconcat"]
+
+
+def _x_axes(column: dict) -> dict[str, dict]:
+    """The x axes one grid column defines, by role: `heading` (orient top, title
+    only), `scale` (the plain numeric axis under the plot) and, where the column
+    has reading-speed references, `anchors` (explicit values). Each role exists at
+    most once — a duplicate would merge unpredictably on the shared scale."""
+    axes: dict[str, dict] = {}
+    for layer in column["spec"]["layer"]:
+        axis = layer["encoding"].get("x", {}).get("axis")
+        if not axis:
+            continue
+        role = "heading" if axis["orient"] == "top" else "anchors" if "values" in axis else "scale"
+        assert role not in axes, f"two {role} axes on one column"
+        axes[role] = axis
+    return axes
+
+
+def test_metric_heading_sits_over_the_plot_and_the_scale_under_it(tmp_path):
+    """The heading is a title-only top axis, drawn over the plot area — never a
+    concat title, which would span the lane-label gutter as well. The scale is an
+    ordinary numeric bottom axis with a domain line, riding the layer that anchors
+    the scale (the interval's rule, or the bar). The two rate columns' headings say
+    their ink spans context depth — a rate means nothing without the depth it
+    belongs to."""
+    columns = _grid_columns(_build(tmp_path))
+    assert len(columns) == len(site.METRICS)
+    for column, (metric, title, _) in zip(columns, site.METRICS, strict=True):
+        assert "title" not in column
+        axes = _x_axes(column)
+        heading, scale = axes["heading"], axes["scale"]
+        assert heading["titleAnchor"] == "start"
+        assert heading["labels"] is False and heading["domain"] is False
+        text = heading["title"]
+        assert (text[0] if isinstance(text, list) else text) == title
+        if metric in site.RANGE_METRICS:
+            assert text[1] == "across context depth"
+        else:
+            assert text[1] == "lower is better"
+        # the numeric scale is readable as an axis: labels on, a (soft) domain
+        # line, no grid of its own, and no title competing with the heading
+        assert scale["orient"] == "bottom"
+        assert scale["domain"] is True and scale["grid"] is False
+        assert scale["title"] is None
+        first = column["spec"]["layer"][0]
+        assert first["mark"]["type"] == ("rule" if metric in site.RANGE_METRICS else "bar")
+        assert first["encoding"]["x"]["axis"] is scale
+
+
+def test_reading_anchors_are_at_most_three_ascending_gridlines(tmp_path):
+    """Reference rules are gridlines at named reading speeds — a short, ordered set on
+    the tok/s columns, and nothing at all on warm init. Every anchor that is drawn is
+    also named, under the axis."""
+    html = _build(tmp_path)
+    columns = {
+        metric: column
+        for (metric, *_), column in zip(site.METRICS, _grid_columns(html), strict=True)
+    }
+    for metric, column in columns.items():
+        axes = _x_axes(column)
+        if metric == "init":
+            assert "anchors" not in axes  # only the numeric scale under this column
+            continue
+        axis = axes["anchors"]
+        values = axis["values"]
+        assert axis["grid"] is True
+        assert 0 < len(values) <= 3
+        assert values == sorted(values)
+        assert values == [v for v, _ in site.READING_ANCHORS[metric]]
+        # every anchor is named, each on its own stacked line under the axis
+        for line, (value, name) in enumerate(site.READING_ANCHORS[metric]):
+            stack = ", ".join(f"'{s}'" for s in [""] * line + [name])
+            assert f"datum.value === {value} ? [{stack}]" in axis["labelExpr"]
+
+
+def test_anchor_names_stack_one_per_line_under_the_axis():
+    """Two anchors close together on the scale must never fight for the same
+    stretch of text: anchor *i* renders on line *i* of a multi-line tick label, so
+    the prefill column's 130 and 400 — 39 pixels apart on a wide-open shelf — sit
+    on different lines instead of one truncating the other."""
+    axis = site._anchor_axis(site.READING_ANCHORS["prefill"])
+    assert axis["labelExpr"] == (
+        "datum.value === 130 ? ['1 paragraph/s'] : "
+        "datum.value === 400 ? ['', '1 page/s'] : "
+        "datum.value === 1700 ? ['', '', '1 book/min'] : ''"
+    )
+    # explicit values draw no labels vega could cull half of
+    assert axis["labelOverlap"] is False
+
+
+def _fixture_grid_rows() -> dict[tuple[str, str, str], dict]:
+    """The fixture shelf's grid rows, keyed (lane, model, metric)."""
+    df = site._with_lanes(load_results(FIXTURES))
+    ranges = site._depth_ranges(site._with_lanes(load_sweeps(FIXTURES)))
+    return {(r["lane"], r["model"], r["metric"]): r for r in site._grid_rows(df, ranges)}
+
+
+def test_range_metrics_carry_the_sweep_interval_and_nothing_else():
+    """A range column draws the sweep's endpoints over depth, and only those: the
+    m1-max ladder measured two fills (80 tok/s empty, 75 at 2,048), so that is the
+    interval — the job's own 40 tok/s never stretches it (the accuracy section is
+    where the job is read, against the calculator). The printed label is the two
+    ends."""
+    rows = _fixture_grid_rows()
+    decode = rows[("Apple M1 Max · mtl", "gemma4-E2B", "decode")]
+    assert (decode["d_shallow"], decode["v_shallow"]) == (0, 80.0)
+    assert (decode["d_deep"], decode["v_deep"]) == (2048, 75.0)
+    assert decode["n_depths"] == 2
+    assert (decode["lo"], decode["hi"]) == (75.0, 80.0)  # the sweep's own ends
+    assert decode["value"] is None  # the job's number stays out of this grid
+    assert decode["range_label"] == "75–80"
+    # `label_x` is the row's ink edge: where the label and a status note sit
+    assert decode["label_x"] == 80.0
+
+    # 18 prefill chunks fan out to 9 cumulative depths; the rate falls with depth.
+    prefill = rows[("Apple M1 Max · mtl", "gemma4-E2B", "prefill")]
+    assert prefill["n_depths"] == 9
+    assert prefill["d_shallow"] == 512 and prefill["d_deep"] == 4096
+    assert prefill["v_shallow"] > prefill["v_deep"]
+    assert (prefill["lo"], prefill["hi"]) == (prefill["v_deep"], prefill["v_shallow"])
+
+    # The init column keeps its own measured number and no interval fields at all.
+    init = rows[("Apple M1 Max · mtl", "gemma4-E2B", "init")]
+    assert init["value"] is not None
+    assert not {"lo", "hi", "v_deep", "label_x"} & init.keys()
+
+
+def test_a_status_note_is_told_once_per_lane_not_once_per_column():
+    """The status is a fact about the (lane, model), not about a column: the first
+    column that would have shown a number carries it and the other two stay blank,
+    so the row reads as one sentence instead of three. The status is the *sweep's*
+    — the backstop killed this cell's sweep after one prefill point — because this
+    grid is the sweep's; how the validation job fared is the accuracy section's
+    business, not a row headline here."""
+    rows = _fixture_grid_rows()
+    notes = {
+        metric: rows[("RTX 3090 · cuda", "gemma4-E4B", metric)]["note"]
+        for metric, *_ in site.METRICS
+    }
+    assert notes == {"decode": "sweep too slow", "prefill": None, "init": None}
+    # ...and a cell that measured everything carries no note in any column
+    assert not any(
+        rows[("RTX 3090 · cuda", "qwen3-4B", metric)]["note"] for metric, *_ in site.METRICS
+    )
+
+
+def test_one_measured_depth_collapses_and_keeps_its_status_note():
+    """The 3090's gemma4-E4B was killed by the backstop after a single prefill
+    chunk: one depth is one point, not a fabricated span, and the cell still says
+    why the sweep left so little."""
+    rows = _fixture_grid_rows()
+    prefill = rows[("RTX 3090 · cuda", "gemma4-E4B", "prefill")]
+    assert prefill["n_depths"] == 1
+    assert prefill["d_shallow"] == prefill["d_deep"] == 512
+    assert prefill["v_shallow"] == prefill["v_deep"] == prefill["lo"] == prefill["hi"]
+    assert prefill["value"] is None  # no job number to put a dot on
+    assert prefill["label_x"] == prefill["v_deep"]  # the interval is still the ink
+
+    # Same cell, decode: the sweep never got there, so there is no interval either —
+    # and this is the column that tells the reader why (once, for the whole row).
+    decode = rows[("RTX 3090 · cuda", "gemma4-E4B", "decode")]
+    assert decode["note"] == "sweep too slow"  # the prefill interval is real ink
+    for field in ("lo", "hi", "v_shallow", "v_deep", "n_depths", "label_x"):
+        assert decode[field] is None, field  # None, never NaN — the island is strict
+
+
+def test_a_cell_with_no_sweep_at_all_keeps_only_its_note():
+    """The unhealthy (model, provider) never ran: no interval, no dot — and with no
+    ink anywhere in the row, the note is the bare status, never "job unhealthy"."""
+    row = _fixture_grid_rows()[("Apple M1 Max · mtl", "qwen3-4B", "decode")]
+    assert row["note"] == "unhealthy"
+    assert row["value"] is None and row["lo"] is None and row["label_x"] is None
+
+
+def test_a_one_point_sweep_stays_a_point_and_a_missing_sweep_says_so():
+    """A lane whose sweep reached one deep fill is one point — the job's own rate
+    never stretches it into a range the sweep did not measure. And an ok cell whose
+    sweep left no points in a column says "no sweep data" there, instead of a
+    silent blank that reads as a lane dropping out."""
+    df = pd.DataFrame(
+        [
+            {
+                "provider": "cpu:0",
+                "machine": "box",
+                "backend": "llamacpp",
+                "device": "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+                "cpu": "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+                "cpu_cores": 8,
+                "threads_batch": 8,
+                "threads_decode": 8,
+                "model": "Ministral3-3B",
+                "quant": "q4",
+                "status": "ok",
+                "sweep_status": "ok",
+                "sweep_decode_tps_max": 8.9,
+                "decode_tps_p50": 20.19,
+                "prefill_tps_p50": 160.39,
+                "ttft_ms_p50": 9695.08,
+                "model_load_ms_p50": 500.0,
+                "context_init_ms_p50": 100.0,
+            }
+        ]
+    )
+    ranges = {
+        (("box", "llamacpp", "cpu:0", "Ministral3-3B", "q4"), "decode"): {
+            "d_shallow": 7168,
+            "d_deep": 7168,
+            "v_shallow": 8.9,
+            "v_deep": 8.9,
+            "n_depths": 1,
+        }
+    }
+    rows = {r["metric"]: r for r in site._grid_rows(site._with_lanes(df), ranges)}
+    assert (rows["decode"]["lo"], rows["decode"]["hi"]) == (8.9, 8.9)
+    assert rows["decode"]["range_label"] == "8.9"  # one point prints one number
+    assert rows["decode"]["value"] is None  # the job's 20.19 appears nowhere
+    assert rows["prefill"]["lo"] is None
+    assert rows["prefill"]["note"] == "no sweep data"
+    assert rows["init"]["value"] == 0.6  # init still carries its own number
+
+
+def test_a_dead_job_never_marks_a_row_the_sweep_measured():
+    """A cell whose sweep measured fine but whose validation job scored nothing
+    (a machine that slept through the job, a rate under the floor) keeps its
+    intervals with no status note at all — the job is the calculator's check, not
+    this grid's business. Only the init column, whose load spans ride the job's
+    spawns, says "not measured"."""
+    df = pd.DataFrame(
+        [
+            {
+                "provider": "cpu:0",
+                "machine": "box",
+                "backend": "llamacpp",
+                "device": "Apple M1",
+                "cpu": "Apple M1",
+                "cpu_cores": 8,
+                "threads_batch": 4,
+                "threads_decode": 4,
+                "model": "gemma4-E2B",
+                "quant": "q4",
+                "status": "too_slow",
+                "sweep_status": "ok",
+                "sweep_decode_tps_max": 28.27,
+                "model_load_ms_p50": None,
+                "context_init_ms_p50": None,
+            }
+        ]
+    )
+    ranges = {
+        (("box", "llamacpp", "cpu:0", "gemma4-E2B", "q4"), "decode"): {
+            "d_shallow": 0,
+            "d_deep": 1536,
+            "v_shallow": 28.27,
+            "v_deep": 23.34,
+            "n_depths": 2,
+        }
+    }
+    rows = {r["metric"]: r for r in site._grid_rows(site._with_lanes(df), ranges)}
+    assert rows["decode"]["range_label"] == "23–28"  # the sweep's ink survives
+    assert rows["decode"]["note"] is None and rows["prefill"]["note"] == "no sweep data"
+    assert rows["init"]["value"] is None and rows["init"]["note"] == "not measured"
+
+
+def test_range_columns_draw_a_rule_with_its_ends_printed(tmp_path):
+    """Per range column: the interval on a log x scale — the lanes span three
+    orders of magnitude, and a rule (unlike a bar) implies no baseline for a log
+    scale to break — the two ends printed at its edge, the status note, and the
+    axis carriers. No dot — the validation job is not on this chart."""
+    columns = {
+        metric: column
+        for (metric, *_), column in zip(site.METRICS, _grid_columns(_build(tmp_path)), strict=True)
+    }
+    for metric, column in columns.items():
+        layers = column["spec"]["layer"]
+        marks = [layer["mark"]["type"] for layer in layers]
+        texts = [layer for layer in layers if layer["mark"]["type"] == "text"]
+        if metric not in site.RANGE_METRICS:
+            # bar, its value label, headroom, note, heading carrier
+            assert marks == ["bar", "text", "point", "text", "point"]
+            assert [t["mark"].get("fontStyle") for t in texts] == [None, "italic"]
+            assert [t["encoding"]["text"]["field"] for t in texts] == ["value", "note"]
+            # seconds-to-ready stays linear: one order of magnitude, and a bar
+            # needs the zero a log scale cannot hold
+            assert "scale" not in layers[0]["encoding"]["x"]
+            continue
+        # rule, range label, headroom, two note layers, heading + anchor carriers
+        assert marks == ["rule", "text", "point", "text", "text", "point", "point"]
+        assert [t["mark"].get("fontStyle") for t in texts] == [None, "italic", "italic"]
+        assert [t["encoding"]["text"]["field"] for t in texts] == [
+            "range_label",
+            "note",
+            "note",
+        ]
+        rule, label = layers[:2]
+        assert rule["encoding"]["x"]["field"] == "lo"
+        assert rule["encoding"]["x2"]["field"] == "hi"
+        assert rule["encoding"]["x"]["scale"] == {"type": "log"}
+        # label and the with-ink note both sit at the ink's edge, cleared of the
+        # rule's cap; the bare-row note sits at the plot's left edge in pixels,
+        # because zero is not a position a log scale has.
+        assert label["encoding"]["x"]["field"] == "label_x"
+        assert label["mark"]["dx"] == 9
+        inked_note, bare_note = texts[1], texts[2]
+        assert "datum.label_x !== null" in inked_note["transform"][0]["filter"]
+        assert inked_note["encoding"]["x"]["field"] == "label_x"
+        assert inked_note["mark"]["dx"] == 9
+        assert "datum.label_x === null" in bare_note["transform"][0]["filter"]
+        assert bare_note["encoding"]["x"] == {"value": 0}
+        # Hover names the mark's lane, then describes the ink and nothing else: the
+        # sweep's ends with their depths, as one prebuilt string (a one-point sweep
+        # reads as one point).
+        assert [t["field"] for t in rule["encoding"]["tooltip"]] == ["who", "sweep_str"]
+
+
+def _island(html: str, name: str) -> dict:
+    found = re.search(
+        f'<script type="application/json" data-island="{name}">(.*?)</script>', html, re.S
+    )
+    assert found, f"no {name} island rendered"
+    return json.loads(found.group(1))
+
+
+def _fixture_launch_rows() -> dict[tuple[str, str, str], dict]:
+    """The fixture shelf's first-launch rows, keyed (lane, model, phase)."""
+    rows = site._launch_rows(site._with_lanes(load_results(FIXTURES)))
+    return {(r["lane"], r["model"], r["phase"]): r for r in rows}
+
+
+def test_compilation_is_claimed_only_where_it_was_measured_from_empty():
+    """The 3090's cuda lane compiled 5.5 MB of pipelines into a cache the survey tool
+    pinned, so its warmup span is a real from-scratch compile and the number stands
+    unqualified. The M1's Metal lane exposes no cache path at all: that launch still
+    cost what it cost, so the span is reported and marked — what we don't know is
+    how much the machine had already built, which qualifies the number rather than
+    licensing the claim that nothing compiled."""
+    rows = _fixture_launch_rows()
+
+    cuda = rows[("RTX 3090 · cuda", "qwen3-4B", "pipeline compilation")]
+    assert cuda["seconds"] == 1.56 and cuda["note"] is None
+    assert cuda["label"] == "1.6"
+    # The estimate carries its own arithmetic: a 1.83 s warm pass, 0.27 s of which
+    # its width walk spends on plain prefill, priced from this lane's own fit.
+    assert (cuda["span"], cuda["netted"]) == (1.83, 0.27)
+    assert cuda["mb"] == 5.5 and cuda["cache"] == "redirected"
+    # How much was compiled, out of which cache, and what was netted out belong to
+    # the compile alone: a cold read of the weights compiles nothing, so it carries
+    # none of them.
+    cold = rows[("RTX 3090 · cuda", "qwen3-4B", "cold first touch")]
+    assert cold["seconds"] == 5.0
+    assert cold["mb"] is None and cold["cache"] is None
+    assert cold["span"] is None and cold["netted"] is None
+
+    mac = rows[("Apple M1 Max · mtl", "gemma4-E2B", "pipeline compilation")]
+    assert mac["seconds"] == 0.61 and mac["note"] is None
+    assert mac["label"] == f"0.6{site.UNVERIFIED_MARK}"
+    assert mac["cache"] == "unavailable"
+    assert mac["mb"] is None  # nothing to report a size for either
+    # the lane stays on the chart because its cold first touch is a number
+    assert rows[("Apple M1 Max · mtl", "gemma4-E2B", "cold first touch")]["seconds"] == 5.0
+
+    # No compile, no cold load: the cell would be two notes and no ink, so it is
+    # gone. E4B's sweep reached one chunk, so it has no fit — and with no fit there
+    # is no way to net the width walk out of its 0.24 s warm pass, which leaves the
+    # compile unestimable rather than equal to the span.
+    assert not [key for key in rows if key[1] == "gemma4-E4B" and "cold" in key[2]]
+    assert ("RTX 3090 · cuda", "gemma4-E4B", "pipeline compilation") not in rows
+    assert ("RTX 3090 · cuda", "gemma4-E2B", "pipeline compilation") not in rows
+    assert ("Apple M1 Max · mtl", "qwen3-4B", "pipeline compilation") not in rows
+    json.dumps(list(rows.values()), allow_nan=False)  # strict — the island is
+
+
+def test_cpu_lanes_report_no_compilation_and_leave_the_chart():
+    """A CPU lane's non-zero `shader_bytes` is the GPU backend's registry init, not
+    this run's compilation, so it never claims a compile bar — and with the cold load
+    attributed to whichever lane read the file first, a CPU lane usually has nothing
+    to draw at all."""
+    df = pd.DataFrame(
+        [
+            {
+                "provider": "cpu:0",
+                "device": "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+                "shader_bytes": 2621456,
+                "cold_start_ms_p50": None,
+            },
+            {
+                "provider": "vulkan:0",
+                "device": "AMD Radeon Graphics (RADV PHOENIX)",
+                "shader_bytes": 2711058,
+                "cold_start_ms_p50": 526.48,
+            },
+        ]
+    ).assign(
+        machine="box",
+        backend="llamacpp",
+        model="Ministral3-3B",
+        quant="q4",
+        cpu="AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+        cpu_cores=8,
+        threads_batch=8,
+        threads_decode=8,
+        status="ok",
+        sweep_decode_tps_max=20.0,
+        shader_cache="redirected",
+        shader_warmup_ms=2990.76,
+        fit_width=512,
+        fit_intercept_ms=100.0,
+        fit_slope_ms_per_1k=0.0,
+    )
+    rows = site._launch_rows(site._with_lanes(df))
+    assert {(r["lane"], r["phase"]) for r in rows} == {
+        ("Ryzen 7 255 iGPU · vulkan", "pipeline compilation"),
+        ("Ryzen 7 255 iGPU · vulkan", "cold first touch"),
+    }
+    # 2.99 s of warm pass less the 0.26 s its 512+512+256+32-token walk costs at a
+    # flat 100 ms per full chunk.
+    assert [r["seconds"] for r in rows] == [2.73, 0.53]
+
+
+def test_a_lane_with_no_fit_cannot_estimate_its_compile():
+    """The warm pass is compilation and prefill together, and only the lane's own
+    cost function can say how much of it is prefill. Without one the compile is
+    unestimable — which is not the same as the span, and not the same as zero."""
+    df = pd.DataFrame(
+        [
+            {
+                "provider": "vulkan:0",
+                "device": "AMD Radeon Graphics (RADV PHOENIX)",
+                "shader_bytes": 2711058,
+                "cold_start_ms_p50": 526.48,
+                "fit_width": None,
+                "fit_intercept_ms": None,
+                "fit_slope_ms_per_1k": None,
+            },
+        ]
+    ).assign(
+        machine="box",
+        backend="llamacpp",
+        model="Ministral3-3B",
+        quant="q4",
+        cpu="AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+        cpu_cores=8,
+        threads_batch=8,
+        threads_decode=8,
+        status="ok",
+        sweep_decode_tps_max=20.0,
+        shader_cache="redirected",
+        shader_warmup_ms=2990.76,
+    )
+    (compile_row,) = [
+        r for r in site._launch_rows(site._with_lanes(df)) if r["phase"] == "pipeline compilation"
+    ]
+    assert compile_row["seconds"] is None
+    assert compile_row["note"] == "no cost function to net the warm pass out of"
+    # The cold first touch keeps the cell on the chart, so the note is seen.
+    assert compile_row["span"] == 2.99 and compile_row["netted"] is None
+
+
+def test_launch_chart_groups_two_phases_on_one_lane_row(tmp_path):
+    """Two bars per lane, offset within the lane's row, the phase carried by opacity
+    with its legend as the key — and the compilation caveat in the subtitle, where a
+    reader meets it before the numbers."""
+    spec = _island(_build(tmp_path), "launch")
+    assert spec["title"]["text"] == "one-time first launch (s)"
+    subtitle = " ".join(spec["title"]["subtitle"])  # split in two so it cannot clip
+    assert "empty shader cache" in subtitle
+
+    compile_bar, cold_bar, label, headroom, note = spec["layer"]
+    bar = compile_bar
+    for phase, layer in zip(site.LAUNCH_PHASES, (compile_bar, cold_bar), strict=True):
+        assert layer["mark"]["type"] == "bar"
+        assert layer["transform"] == [
+            {"filter": f"datum.seconds !== null && datum.phase === '{phase}'"}
+        ]
+    # Only the compile layer may define the axis — two layers on one scale would
+    # merge their axis objects into a doubled heading.
+    assert "axis" in compile_bar["encoding"]["x"]
+    assert "axis" not in cold_bar["encoding"]["x"]
+    # A cold read of the weights compiled nothing, so its tooltip says nothing about
+    # compilation: no "compiled (MB)", no shader cache, and no dash standing in.
+    cold_fields = {t["field"] for t in cold_bar["encoding"]["tooltip"]}
+    assert cold_fields == {"who", "phase", "seconds"}
+    assert {t["field"] for t in compile_bar["encoding"]["tooltip"]} == (
+        cold_fields | {"mb", "cache", "span", "netted"}
+    )
+    assert bar["encoding"]["x"]["field"] == "seconds"
+    assert bar["encoding"]["x"]["scale"] == {"zero": True}
+    assert bar["encoding"]["y"]["sort"] == {"field": "rank", "op": "min", "order": "ascending"}
+    # `opacity`, not `fillOpacity`: vega-lite 6.4.1 compiles no legend for the
+    # latter, and this legend is the only thing naming the two phases.
+    assert "fillOpacity" not in bar["encoding"]
+    opacity = bar["encoding"]["opacity"]
+    assert opacity["field"] == "phase"
+    assert opacity["scale"] == {"domain": list(site.LAUNCH_PHASES), "range": [1, 0.5]}
+    assert opacity["legend"]["orient"] == "bottom"
+    for layer in (bar, label, note):  # every mark sits in its own phase row
+        assert layer["encoding"]["yOffset"]["field"] == "phase"
+    # The row formats its own label: only it knows whether the span earned the mark
+    # that says its shader cache could not be pinned.
+    assert label["encoding"]["text"] == {"field": "label"}
+    assert site.UNVERIFIED_MARK in subtitle
+    assert "datum.seconds" in headroom["transform"][0]["calculate"]
+    assert note["transform"] == [{"filter": "datum.note !== null"}]
+    assert note["mark"]["fontStyle"] == "italic"
+    # the note sits at the axis, where a missing bar leaves room for it
+    assert note["encoding"]["x"] == {"datum": 0, "type": "quantitative"}
+
+
+def _fixture_pack() -> dict:
+    df = site._with_lanes(load_results(FIXTURES))
+    return site._task_pack(df, site._with_lanes(load_sweeps(FIXTURES)))
+
+
+def test_task_pack_carries_the_measured_curves_and_the_envelope():
+    """The page prices a task from this pack alone, so it has to hold both measured
+    cost curves — the cumulative time-to-first-token points and the decode ladder,
+    never a fit of them — how far each was measured, what a launch costs once, and
+    the job's own numbers to check the arithmetic against."""
+    pack = _fixture_pack()
+    records = {(r["lane"], r["model"]): r for r in pack["records"]}
+
+    cuda = records[("RTX 3090 · cuda", "qwen3-4B")]
+    # the sweep's own cumulative clock at every chunk boundary, from the origin
+    assert cuda["curve"][:3] == [[0, 0], [512, 100.0], [1024, 206.1]]
+    assert cuda["curve"][-1] == [4096, 979.9]
+    assert cuda["curve"] == sorted(cuda["curve"])
+    assert cuda["pre_max"] == 4096  # nine chunks deep, and not a token further
+    assert cuda["ladder"] == [[0, 80.0], [2048, 75.0]] and cuda["kv_max"] == 2048
+
+    # The job's own measured generation rate joins the ladder at its fill (prompt +
+    # half the reply): on a lane whose sweep reached one deep fill this is what
+    # keeps a shallow task from being priced at the deep-fill rate — the bug that
+    # predicted ~9 tok/s against a job that measured 20. A lane whose job left no
+    # prefill rate (cuda and mtl above) has no fill to place it at, and a point
+    # within a chunk of an existing rung stays out.
+    cpu = records[("Apple M1 Max · cpu 8t (10C)", "gemma4-E2B")]
+    assert [1682, 21.0] in cpu["ladder"]  # ptps·ttft + reply/2, at the job's tps
+    assert cpu["ladder"] == sorted(cpu["ladder"])
+    # Model load + context init, and not the warm pass: that span is the survey tool
+    # forcing its dispatch widths, which no deployment pays for.
+    assert cuda["load_s"] == 1.0
+    assert cuda["cold_s"] == 5.0 and cuda["first_launch_s"] == 1.56
+    assert cuda["measured"] == {"ttft": 0.7, "tps": 80.0, "total": 4.0}
+    # The model's own trained context: the page carries its curves past the sweep's
+    # depths, so this is the one number that can rule a configuration out entirely.
+    assert cuda["n_ctx_train"] == 4096
+
+    # Metal exposes no pinnable shader cache, so this first launch is a floor of
+    # unknown tightness rather than a cold compile — still a cost a batch pays, and
+    # reported as one (same rule as the first-launch chart).
+    mac = records[("Apple M1 Max · mtl", "gemma4-E2B")]
+    assert mac["first_launch_s"] == 0.61
+    assert mac["curve"][1] == [512, 140.0] and mac["kv_max"] == 2048
+
+    # One measured chunk is still a curve — priceable to its depth, carried onward
+    # and marked past it — exactly as a one-rung ladder is still a ladder.
+    slow = records[("RTX 3090 · cuda", "gemma4-E4B")]
+    assert slow["curve"] == [[0, 0], [512, 9000.0]] and slow["pre_max"] == 512
+    assert slow["ladder"] == [] and slow["measured"] is None
+
+    # Nothing measured at all: no bar could be drawn from it, and the Results grid
+    # above already says why the cell is empty.
+    assert ("RTX 3090 · cuda", "gemma4-E2B") not in records  # errored, nothing at all
+    assert ("Apple M1 Max · mtl", "qwen3-4B") not in records
+    json.dumps(pack, allow_nan=False)  # strict — it ships as a JSON island
+
+
+def test_each_task_owns_its_columns_and_its_note():
+    """A task is a select option, a note, and its own three column titles — the title
+    is where a chat turn and a background job stop being the same three numbers.
+    Editing the inputs edits the selected task; nothing is derived."""
+    pack = _fixture_pack()
+    tasks = {t["key"]: t for t in pack["tasks"]}
+    assert set(tasks) == {"chat", "summarize", "extract"}
+    for t in tasks.values():
+        assert t["note"]
+        assert len(t["columns"]) == len(site.TASK_METRICS)
+    assert tasks["chat"]["depth"] > 0  # a turn appended to a live cache
+    assert tasks["chat"]["fields"] == ["depth"]  # the one task with a depth input
+    assert tasks["summarize"]["measured"] is True  # the job's own shape (accuracy)
+    assert tasks["extract"]["mid_unit"] == "s"  # phases in seconds, nobody watching
+    assert [t["key"] for t in pack["tasks"]][0] == "chat"  # the page opens on it
+
+
+def test_task_grid_draws_three_computed_columns_the_page_fills(tmp_path):
+    """Same layout as the measured grid — heading over the plot area, numeric scale
+    and anchor references under it, the value printed at the bar's end — over data
+    the page inserts: the island ships a named, empty set, never numbers computed
+    at build time. No measured dot: the validation job lives in the accuracy
+    section, not on the predictions."""
+    spec = _island(_build(tmp_path), "tasks")
+    assert spec["data"] == {"name": "tasks"}
+    columns = spec["hconcat"]
+    assert len(columns) == len(site.TASK_METRICS)
+
+    for column, metric, (title, _) in zip(
+        columns, site.TASK_METRICS, site.TASKS[0]["columns"], strict=True
+    ):
+        assert "title" not in column
+        bar, label = column["spec"]["layer"][:2]
+        assert bar["mark"]["type"] == "bar"
+        axes = _x_axes(column)
+        heading = axes["heading"]
+        assert heading["titleAnchor"] == "start"
+        text = heading["title"]
+        assert (text[0] if isinstance(text, list) else text) == title
+        # the scale rides the bar; "~r" keeps the empty pre-insert domain from
+        # deriving six decimals of tick precision for a lone zero
+        assert bar["encoding"]["x"]["axis"] is axes["scale"]
+        assert axes["scale"]["format"] == "~r"
+        # Generation carries the same named reading-speed anchors as the measured
+        # grid; seconds have none.
+        if metric == "tps":
+            assert axes["anchors"]["values"] == [v for v, _ in site.TASK_ANCHORS["tps"]]
+            for _value, name in site.TASK_ANCHORS["tps"]:
+                assert f"'{name}'" in axes["anchors"]["labelExpr"]
+        else:
+            assert "anchors" not in axes
+        # An estimate is thinner ink, not a second hue — and a value condition
+        # carries no scale, so it adds no legend.
+        assert bar["encoding"]["opacity"]["condition"]["test"] == "datum.est"
+        # the label is a string the page's arithmetic writes ("2 min 14 s"),
+        # riding the bar it describes
+        assert label["encoding"]["text"]["field"] == "label"
+        assert label["encoding"]["x"]["field"] == "value"
+        # two text layers: the value label and the italic note — never a dot
+        texts = [lyr for lyr in column["spec"]["layer"] if lyr["mark"]["type"] == "text"]
+        assert [t["encoding"]["text"]["field"] for t in texts] == ["label", "note"]
+        assert [t["mark"].get("fontStyle") for t in texts] == [None, "italic"]
+        assert not any(
+            "measured" in json.dumps(lyr.get("transform", [])) for lyr in column["spec"]["layer"]
+        )
+
+
+def test_task_columns_say_what_they_price_not_what_the_grid_measured(tmp_path):
+    """Each task owns its column titles, so a chat turn's first word and a background
+    job's done-after never share a heading — and none of them reuses the measured
+    grid's own titles, or the same words would appear twice with different numbers.
+    The built spec carries the first task's titles; the page swaps them on
+    selection."""
+    grid_titles = {t for _, t, *_ in site.METRICS}
+    for task in site.TASKS:
+        titles = [t for t, _ in task["columns"]]
+        assert len(set(titles)) == 3
+        assert not grid_titles & set(titles)
+    headings = [
+        _x_axes(column)["heading"] for column in _island(_build(tmp_path), "tasks")["hconcat"]
+    ]
+    first = site.TASKS[0]["columns"]
+    assert [a["title"] for a in headings] == [first[0][0], first[1][0], [first[2][0], first[2][1]]]
+
+
+def test_preset_notes_name_the_work_in_words_as_well_as_tokens():
+    """A token count is not a unit anyone has a feel for. Each preset's note opens
+    with the work it stands for in words, with the tokens the arithmetic uses beside
+    them; `custom` has no note because its numbers are the reader's own."""
+    assert site._words(4096) == "3,000"  # 3,072 words, to the nearest 250
+    assert site._words(300) == "225"  # under 500 words: to the nearest 25
+    assert site._words(1550) == "1,150"  # under 2,000: to the nearest 50
+    assert site._words(120) == "100"
+
+    tasks = {t["key"]: t for t in _fixture_pack()["tasks"]}
+    assert tasks["extract"]["note"].startswith(
+        "A ~3,000-word prompt (4,096 tokens) and a ~300-word reply (400 tokens)."
+    )
+    assert tasks["chat"]["note"].startswith(
+        "~3,000 words of conversation already in the context (4,096 tokens), "
+        "a ~100-word prompt (120 tokens) and a ~150-word reply (200 tokens)."
+    )
+    assert "1,550 tokens" in tasks["summarize"]["note"]
+    # the task's own sentence still follows the workload it opens with
+    for key, task in tasks.items():
+        assert task["note"].endswith(dict((t["key"], t["note"]) for t in site.TASKS)[key])
+
+
+def test_the_token_inputs_carry_a_live_word_hint(tmp_path):
+    """Each token field has a place for its word count next to it, the page fills it
+    from the same ratio the notes are written in, and the ratio is stated once."""
+    h = _build(tmp_path)
+    for field in ("t-depth", "t-prompt", "t-out"):
+        assert f'<span class="words" data-for="{field}"></span>' in h
+    assert "about ¾ of a word each" in h
+    assert "taskMath.words" in h  # report.js fills the hints from tasks.js
+    assert "words: words" in h  # ...and tasks.js exports it
+
+
+def test_the_task_intro_is_short_and_folds_the_rest(tmp_path):
+    """Nine lines of preamble is a wall. The section says what it is and where its one
+    hard limit is; how to read the marks sits behind a fold."""
+    h = _build(tmp_path)
+    intro = " ".join(h.split("<h2>What a task costs</h2>")[1].split("<details")[0].split())
+    assert intro.count(".") <= 4  # three sentences, one abbreviation of slack
+    # The rule as it now stands: evaluated past the evidence, marked when it is, and
+    # stopped only by the model's own trained context.
+    assert "marked as an estimate" in intro
+    assert "the model itself was trained for" in intro
+    assert "extrapolated" not in intro  # the old promise is gone, not softened
+    fold = h.split("<h2>What a task costs</h2>")[1].split("</details>")[0]
+    assert '<details class="fine">' in fold
+    assert "<summary>How to read these bars</summary>" in fold
+    assert "half-lit" in fold and "<code>~</code>" in fold
+    assert "deeper than the sweep went" in fold  # what the ~ now also covers
+    assert "trained context" in fold  # ...and the one thing that draws no bar
+    assert "details.fine > summary" in h  # and the fold has a style of its own
+
+
+def _node(tmp_path, body: str) -> list[str]:
+    """`assets/tasks.js` run the way the page runs it: one line of JSON out per
+    `console.log` the body writes."""
+    script = tmp_path / "run.js"
+    script.write_text(
+        "var window = {};\n" + (site.PKG / "assets" / "tasks.js").read_text() + "\n" + body
+    )
+    out = subprocess.run(
+        ["node", str(script)],  # noqa: S603 — a file this test wrote
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout.strip().splitlines()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_page_refuses_only_what_the_model_cannot_hold(tmp_path):
+    """The calculator's one refusal: a task longer than the context the model was
+    trained for. That is a fact about the model, not about our sweep's budget, and it
+    belongs to the lane rather than to a column — so the first column carries the text
+    and the rest of the row is blank. And the page's word counts are the ones the
+    preset notes were built with."""
+    rows_json, words_json = _node(
+        tmp_path,
+        f"var pack = {json.dumps(_fixture_pack())};\n"
+        "var p = {task: 'summarize', depth: 0, prompt: 200000, out: 300};\n"
+        "console.log(JSON.stringify(window.taskMath.taskRows(pack, p)));\n"
+        "console.log(JSON.stringify([4096, 300, 1550, 120].map(window.taskMath.words)));\n",
+    )
+
+    rows = json.loads(rows_json)
+    assert rows, "no lane priced"
+    metrics = list(site.TASK_METRICS)
+    for lane in {r["lane"] for r in rows}:
+        mine = [r for r in rows if r["lane"] == lane]
+        notes = {r["metric"]: r["note"] for r in mine}
+        assert notes[metrics[0]] == "beyond this model's context"
+        assert [notes[m] for m in metrics[1:]] == [None, None]
+        assert all(r["value"] is None for r in mine)
+        # ...printed once, but hover answers in whichever column was asked
+        assert {r["why"] for r in mine} == {"beyond this model's context"}
+
+    assert json.loads(words_json) == [3000, 225, 1150, 100]
+    assert [site._words(n) for n in (4096, 300, 1550, 120)] == [
+        f"{w:,}" for w in json.loads(words_json)
+    ]
+
+
+def _line_curve(b: float, m: float, depth: int, w: int = 512) -> list[list[float]]:
+    """A cumulative prefill curve whose chunks cost `b + m·d/1k` — what the sweep
+    would have measured on a lane that really were linear, so the expectations
+    below stay hand-checkable arithmetic."""
+    curve, t = [[0, 0.0]], 0.0
+    for k in range(depth // w):
+        t += b + m * (w * k) / 1000
+        curve.append([w * (k + 1), round(t, 1)])
+    return curve
+
+
+# One lane's pack record, shaped like the shelf's slowest CPU lanes: a curve
+# measured to 7,168 tokens and a decode ladder that stops at the same fill. A
+# 8,192-token prompt is past both and well inside the model's 262,144-token
+# context — the case the calculator used to refuse.
+PAST_MEASURED = {
+    "records": [
+        {
+            "lane": "Ryzen 7 255 · cpu 8t",
+            "dev_class": "CPU",
+            "model": "Ministral3-3B",
+            "quant": "q4",
+            "backend": "llamacpp",
+            "rank": 0,
+            "curve": _line_curve(2451.831, 666.999, 7168),
+            "pre_max": 7168,
+            "ladder": [[0, 31.0], [2048, 28.0], [7168, 22.0]],
+            "kv_max": 7168,
+            "n_ctx_train": 262144,
+            "load_s": 1.0,
+            "cold_s": None,
+            "first_launch_s": None,
+            "measured": None,
+        }
+    ],
+    "presets": [],
+    "mode_notes": {},
+    "metrics": ["ttft", "tps", "total"],
+}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_past_the_measured_depth_the_curve_is_carried_on_and_marked(tmp_path):
+    """Past the sweep's deepest point the measured curve is carried onward at its
+    last segment's per-token cost — a prediction, not a fiction, and the optimistic
+    side since the marginal cost was still rising. Every column keeps its number,
+    wears a `~`, is drawn at half ink, and names on hover — in a label, not a
+    paragraph — how far past the evidence it went. The generation rate is held at
+    the deepest fill measured, which is the slowest observed."""
+    (rows_json, depths_json) = _node(
+        tmp_path,
+        f"var pack = {json.dumps(PAST_MEASURED)};\n"
+        "var p = {mode: 'stream', depth: 0, prompt: 8192, out: 300, docs: 1};\n"
+        "console.log(JSON.stringify(window.taskMath.taskRows(pack, p)));\n"
+        "console.log(JSON.stringify([512, 3584, 7168, 8192]"
+        ".map(window.taskMath.depthLabel)));\n",
+    )
+
+    rows = {r["metric"]: r for r in json.loads(rows_json)}
+    assert set(rows) == {"ttft", "tps", "total"}
+    for row in rows.values():
+        assert row["value"] is not None and row["note"] is None
+        assert row["est"] is True and row["value_label"].startswith("~")
+
+    past = "past the measured 7k tokens"
+    held = "rate held at the deepest fill measured"
+    assert rows["ttft"]["why"] == past
+    assert rows["tps"]["why"] == held
+    assert rows["total"]["why"] == f"{past}; {held}"
+    # labels, not sentences, so the hover card stays a card and not a paragraph
+    for row in rows.values():
+        for clause in row["why"].split("; "):
+            assert len(clause) <= 40, clause
+            assert "." not in clause and "—" not in clause
+    # 65.4 s measured to 7,168 tokens, then 1,024 more at the last segment's
+    # 13.46 ms/token — under the fit's own 80.2 s, because holding the last rate
+    # is the optimistic side of a rising marginal cost
+    assert rows["ttft"]["value"] == pytest.approx(79.2, abs=0.1)
+    assert rows["tps"]["value"] == pytest.approx(22.0, abs=0.1)  # the held rate
+    # a depth reads as a reader would say it, to the nearest half-thousand
+    assert json.loads(depths_json) == ["512", "3.5k", "7k", "8k"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_accuracy_rows_grade_the_job_shape_and_skip_generation(tmp_path):
+    """The accuracy rows price the validation job's own shape with the calculator
+    and read it against the job's measurements — signed percent, one row per graded
+    phase. Generation is never graded on its own: where the sweep ran thin the
+    job's rate is part of the ladder, and a check against itself proves nothing."""
+    pack = {
+        "records": [
+            {
+                "lane": "Ryzen 7 255 · cpu 8t",
+                "dev_class": "CPU",
+                "model": "Ministral3-3B",
+                "quant": "q4",
+                "backend": "llamacpp",
+                "rank": 0,
+                # a flat measured curve — 1,000 ms per 512 tokens — so a
+                # 1,536-token prompt prices at exactly 3 s
+                "curve": [[0, 0], [512, 1000.0], [1024, 2000.0], [1536, 3000.0]],
+                "pre_max": 1536,
+                "ladder": [[0, 16.0]],
+                "kv_max": 7168,
+                "n_ctx_train": 262144,
+                "load_s": 1.0,
+                "cold_s": None,
+                "first_launch_s": None,
+                "measured": {"ttft": 5.0, "tps": 16.0, "total": 16.0},
+            }
+        ],
+        "tasks": [{"key": "summarize", "measured": True, "depth": 0, "prompt": 1536, "out": 256}],
+        "metrics": ["ttft", "tps", "total"],
+    }
+    (rows_json,) = _node(
+        tmp_path,
+        f"var pack = {json.dumps(pack)};\n"
+        "console.log(JSON.stringify(window.taskMath.accuracyRows(pack)));\n",
+    )
+    rows = {r["phase"]: r for r in json.loads(rows_json)}
+    assert set(rows) == set(site.ACCURACY_PHASES)  # ttft and whole task, never tps
+    ttft = rows["time to first token"]
+    assert ttft["err_pct"] == -40.0  # predicted 3 s against a measured 5 s
+    assert ttft["err_label"] == "−40.0%"
+    total = rows["whole task"]
+    assert total["err_pct"] == 18.8  # predicted 3 + 256/16 = 19 s against 16 s
+    assert total["err_label"] == "+18.8%"
+    # hover carries the two numbers the bar was computed from
+    assert total["meas_label"] == "16 s"
+    assert total["pred_label"].endswith("s")
+
+
+def test_accuracy_chart_is_a_fixed_height_dot_strip_around_zero(tmp_path):
+    """The accuracy island: page-filled named data, one row per graded phase, one
+    dot per lane off a zero rule. A distribution at a fixed height — a bar per
+    (lane, phase) grew a page-tall column that scaled with submissions. Within a
+    phase's row the dots step by device class; each wears a surface-colored ring
+    so coinciding errors stay countable, and hover carries the lane with
+    predicted against measured."""
+    spec = _island(_build(tmp_path), "accuracy")
+    assert spec["data"] == {"name": "accuracy"}
+    zero, dot = spec["layer"]
+    assert zero["mark"]["type"] == "rule"
+    assert zero["encoding"]["x"] == {"datum": 0, "type": "quantitative"}
+    assert dot["mark"]["type"] == "point" and dot["mark"]["filled"]
+    assert dot["mark"]["stroke"] == site.SURFACE
+    assert dot["encoding"]["x"]["field"] == "err_pct"
+    assert dot["encoding"]["x"]["scale"] == {"zero": True}
+    # phases are the two rows; the class steps dots apart inside each row
+    assert dot["encoding"]["y"]["field"] == "phase"
+    assert dot["encoding"]["y"]["sort"] == list(site.ACCURACY_PHASES)
+    assert dot["encoding"]["yOffset"]["scale"]["domain"] == list(site.CLASSES)
+    assert spec["height"] == {"step": 44}  # per phase, never per lane
+    assert [t["field"] for t in dot["encoding"]["tooltip"]] == [
+        "who",
+        "err_label",
+        "pred_label",
+        "meas_label",
+    ]
+
+
+def test_the_task_section_ships_its_controls_its_pack_and_its_arithmetic(tmp_path):
+    """The controls, the pack and `tasks.js` all have to be on the page for any of it
+    to work, and the pack is a JSON island like every other data on the page — never
+    a `|safe` string."""
+    h = _build(tmp_path)
+    assert 'data-spec="tasks"' in h and "What a task costs" in h
+    assert '<script type="application/json" id="task-pack">' in h
+    assert "window.taskMath" in h  # assets/tasks.js inlined
+    for element in (
+        'id="t-preset"',
+        'id="t-depth"',
+        'id="t-prompt"',
+        'id="t-out"',
+        'id="task-note"',
+        'data-field="depth"',
+    ):
+        assert element in h
+    assert 'id="t-docs"' not in h  # one task is one task — no document multiplier
+    for task in site.TASKS:
+        assert f'value="{task["key"]}"' in h
+        assert task["label"].replace("&", "&amp;") in h  # jinja escapes the option text
+
+
+def _memory_frames():
+    """The fixture shelf's two memory inputs, laned like the page lanes them."""
+    df = site._with_lanes(load_results(FIXTURES))
+    mem = site._with_lanes(load_memory(FIXTURES))
+    return df[df.status == "ok"], mem
+
+
+def test_footprint_draws_the_total_over_a_dashed_weights_floor(tmp_path):
+    """The allocator curve is two lines per lane: the total, and the weights floor
+    that does not move with context. The gap between them is the context's cost."""
+    spec = _island(_build(tmp_path), "memory-footprint")
+    total, weights = spec["layer"]
+    assert total["encoding"]["y"]["field"] == "total_mb"
+    assert "strokeDash" not in total["mark"]
+    assert weights["encoding"]["y"]["field"] == "weights_mb"
+    assert weights["mark"]["strokeDash"] == [4, 3]
+    for layer in (total, weights):
+        assert layer["encoding"]["x"]["field"] == "n_ctx"
+        assert layer["encoding"]["y"]["scale"] == {"zero": True}
+        assert layer["encoding"]["y"]["title"] == "MB reserved"
+        titles = [t.get("title", t["field"]) for t in layer["encoding"]["tooltip"]]
+        assert "KV cache (MB)" in titles and "compute buffers (MB)" in titles
+
+    rows = spec["data"]["values"]
+    box = [r for r in rows if r["lane"] == "RTX 3090 · cuda"]
+    assert [r["n_ctx"] for r in box] == [512, 2048, 8192]
+    assert {r["weights_mb"] for r in box} == {600.0}  # the floor is flat
+    assert [r["total_mb"] for r in box] == [687.5, 800.0, 1250.0]
+
+
+def test_job_memory_rows_keep_both_pools_and_name_the_missing_one():
+    """RSS and device-local memory are separate numbers: the 3090's job held both at
+    once. A unified-memory lane reports no second pool — that reads as a note, never
+    as a zero — and the allocator reference comes from the deepest ladder point."""
+    ok, mem = _memory_frames()
+    rows = {(r["lane"], r["model"]): r for r in site._job_memory_rows(ok, mem)}
+
+    cuda = rows[("RTX 3090 · cuda", "qwen3-4B")]
+    assert cuda["rss_peak"] == 1300.0 and cuda["vram_peak"] == 1700.0
+    assert cuda["rss_sustained"] == 1200.0 and cuda["prefill_rss_peak"] == 1500.0
+    assert cuda["vram_note"] is None  # a real number needs no excuse
+    assert (cuda["alloc_total"], cuda["alloc_ctx"]) == (1250.0, 8192)
+    assert cuda["label_x"] == 1700.0  # past both marks, so the label clears the dot
+
+    mac = rows[("Apple M1 Max · mtl", "gemma4-E2B")]
+    assert mac["vram_peak"] is None
+    assert mac["vram_note"] == "unified memory: in RSS"
+    # no allocator ladder on that run: absent, not zero, and still strict JSON
+    assert mac["alloc_total"] is None and mac["alloc_ctx"] is None
+    json.dumps(site._job_memory_rows(ok, mem), allow_nan=False)
+
+
+def test_job_memory_marks_the_process_bar_the_pool_and_the_reference(tmp_path):
+    spec = _island(_build(tmp_path), "memory-job")
+    bar, alloc, vram, label, headroom, note = spec["layer"]
+    assert bar["mark"]["type"] == "bar"
+    assert bar["encoding"]["x"]["field"] == "rss_peak"
+    assert bar["encoding"]["y"]["sort"] == site._lane_order(
+        site._with_lanes(load_results(FIXTURES))
+    )
+    # The allocator reference is dashed and drawn in the surface's own ink; a lane
+    # with no ladder draws none of it.
+    assert alloc["mark"]["strokeDash"] == [2, 2]
+    assert alloc["mark"]["color"] == "currentColor"
+    assert alloc["transform"] == [{"filter": "datum.alloc_total !== null"}]
+    assert vram["transform"] == [{"filter": "datum.vram_peak !== null"}]
+    assert vram["encoding"]["x"]["field"] == "vram_peak"
+    assert label["encoding"]["x"]["field"] == "label_x"
+    assert "datum.label_x" in headroom["transform"][0]["calculate"]
+    assert note["transform"] == [{"filter": "datum.vram_note !== null"}]
+    assert note["mark"]["fontStyle"] == "italic" and note["mark"]["opacity"] == 0.65
+
+
+def test_a_shelf_with_no_allocator_ladder_still_builds(tmp_path):
+    """The m1-max submission carries no `memory_points`: the footprint chart has
+    nothing to draw and is not rendered, and the process chart still is."""
+    only_mac = tmp_path / "published"
+    shutil.copytree(FIXTURES / "m1-max", only_mac / "m1-max")
+    h = _build(tmp_path, published=only_mac)
+    assert 'data-spec="memory-footprint"' not in h
+    assert 'data-spec="memory-job"' in h
+    assert "unified memory: in RSS" in h
+
+
+def _fixture_threads():
+    """The fixture shelf's thread ladder, as the page assembles it: the measured
+    points and the step between each adjacent pair of widths."""
+    points = site._thread_rows(site._with_lanes(load_thread_scaling(FIXTURES)))
+    return points, site._thread_steps(points)
+
+
+def test_thread_points_carry_each_phase_in_its_own_unit():
+    """A prefill point is the chunk's milliseconds, a decode point the burst's tok/s.
+    The ring marks the width the lane actually runs."""
+    points, _ = _fixture_threads()
+    lane = "Apple M1 Max · cpu 8t (10C)"
+    assert {r["lane"] for r in points} == {lane}  # CPU lanes only
+
+    pre = {r["threads"]: r for r in points if r["phase"] == "prefill"}
+    assert sorted(pre) == [2, 4, 8]
+    assert [pre[n]["value"] for n in (8, 4, 2)] == [212.4, 378.6, 719.5]
+    assert [pre[n]["at_width"] for n in (8, 4, 2)] == [True, False, False]
+    assert pre[8]["tokens"] == 128
+    assert all(r["kv_fill"] is None for r in pre.values())  # None, never NaN
+
+    dec = {r["threads"]: r for r in points if r["phase"] == "decode"}
+    assert [dec[n]["value"] for n in (8, 4, 2)] == [22.1, 20.4, 15.2]
+    assert {r["kv_fill"] for r in dec.values()} == {2048}
+    assert dec[8]["tokens"] == 16
+    json.dumps(points, allow_nan=False)  # strict — the island is
+
+
+def test_a_step_says_what_the_widths_it_joins_actually_bought():
+    """The section's only derived number, and it divides two measurements. Prefill is
+    a duration so its speedup inverts; decode is a rate. Both are read against a
+    perfect division of the work, which is the thing a reader is deciding against —
+    and nothing is claimed for a width the ladder never ran."""
+    _, steps = _fixture_threads()
+    labels = {(r["phase"], r["threads"]): r["label"] for r in steps}
+    # 719.5 → 378.6 ms is 1.90x for 2x the threads; 378.6 → 212.4 is 1.78x
+    assert labels[("prefill", 3.0)] == "2→4 threads: 95% of ideal"
+    assert labels[("prefill", 6.0)] == "4→8 threads: 89% of ideal"
+    # decode saturates far harder: 20.4 → 22.1 tok/s is 1.08x for twice the width
+    assert labels[("decode", 3.0)] == "2→4 threads: 67% of ideal"
+    assert labels[("decode", 6.0)] == "4→8 threads: 54% of ideal"
+
+    # A step is drawn at the middle of the segment it describes, so it reads along
+    # the curve rather than at an axis.
+    mid = next(r for r in steps if r["phase"] == "prefill" and r["threads"] == 6.0)
+    assert mid["value"] == round((378.6 + 212.4) / 2, 2)
+    assert mid["kind"] == "step" and mid["at_width"] is False
+    json.dumps(steps, allow_nan=False)
+
+
+def test_one_measured_width_is_no_step_at_all():
+    """A ladder the budget cut to a single width has nothing to compare, and a step
+    between a width and itself would be a division by an ideal of one."""
+    point = {
+        "lane": "Ryzen 5 PRO 230 · cpu 4t",
+        "dev_class": "CPU",
+        "machine": "mini",
+        "model": "Ministral3-3B",
+        "quant": "q4",
+        "backend": "llamacpp",
+        "phase": "prefill",
+        "kind": "point",
+        "threads": 4,
+        "value": 900.0,
+        "tokens": 128,
+        "kv_fill": None,
+        "at_width": True,
+        "label": None,
+    }
+    assert site._thread_steps([point]) == []
+
+
+def test_thread_scalars_headline_the_widths_one_row_per_lane():
+    """The table is the ladder's coverage and nothing else — one row per lane,
+    the models' ladders folded together, because the widths are a fact about the
+    machine and a row per (lane, model) grew a table taller than the charts. What
+    a step bought stays on the charts, labelled on hover. No ceiling column and
+    no 90%-of-peak column: both were asymptotes fitted from a ladder that stops
+    at the lane's own widest width."""
+    points, _steps = _fixture_threads()
+    rows = site._thread_scalar_rows(points)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["lane"] == "Apple M1 Max · cpu 8t (10C)"
+    assert "model" not in row and "prefill_step" not in row and "decode_step" not in row
+    assert row["width"] == "8"  # both phases run the same width
+    assert row["measured"] == "2, 4, 8"  # and the ladder covered these
+    assert row["note"] == "—"  # three widths: nothing to caveat
+    assert "p90" not in row and "ceiling" not in row and "floor" not in row
+
+
+def test_thread_islands_draw_the_dots_and_the_line_between_them(tmp_path):
+    """One island per phase, each in its own unit: the measured widths as dots with
+    the operating width ringed, joined by a line that is interpolation and not a fit.
+    Nothing is drawn past the widest width run, and no asymptote is drawn at all."""
+    h = _build(tmp_path)
+    assert "Thread width" in h
+    units = {"prefill": "ms per 128-token chunk", "decode": "tok/s of a 16-token burst"}
+    titled = {p["phase"]: p for p in site.THREAD_PHASES}
+    for phase, y_title in units.items():
+        spec = _island(h, f"thread-{phase}")
+        assert spec["width"] == 400 and spec["height"] == 220
+        assert spec["title"]["text"] == titled[phase]["title"]
+        # the caveat rides the chart: these work units compare across widths only
+        assert "compare widths" in spec["title"]["subtitle"]
+        kinds = [layer["transform"][0]["filter"] for layer in spec["layer"]]
+        assert "datum.kind === 'point'" in kinds
+        assert "datum.kind === 'point' && datum.at_width" in kinds
+        assert "datum.kind === 'step'" in kinds
+        # The projections are gone: no fitted curve, no asymptote, no 90% rule.
+        assert not [k for k in kinds if "fit" in k or "asymptote" in k or "p90" in k]
+
+        # Three layers filter to the points — the joining line, the invisible hover
+        # surface over the same path, and the dots — so key on marks, not filters.
+        line = next(
+            layer
+            for layer in spec["layer"]
+            if layer["mark"]["type"] == "line" and layer["mark"].get("opacity") != 0
+        )
+        assert line["mark"] == {"type": "line", "strokeWidth": 2}
+        assert line["encoding"]["x"]["field"] == "threads"
+        assert line["encoding"]["x"]["axis"]["tickMinStep"] == 1
+        # one thread is the ladder's own baseline; zero threads is not a width
+        assert line["encoding"]["x"]["scale"] == {"zero": False, "nice": False}
+        assert line["encoding"]["y"]["title"] == y_title
+        assert line["encoding"]["y"]["scale"] == {"zero": True}
+        dot = next(
+            layer
+            for layer in spec["layer"]
+            if layer["mark"]["type"] == "point" and layer["mark"]["filled"]
+        )
+        assert dot["mark"]["size"] == 55
+        ring = next(
+            layer
+            for layer in spec["layer"]
+            if layer["mark"]["type"] == "point" and not layer["mark"]["filled"]
+        )
+        assert ring["mark"]["size"] == 110
+        # A dot hands over its own measurement and nothing else: the work unit is in
+        # the y-axis title, the widths are the dots, and no fit quality survives.
+        titles = [t.get("title", t["field"]) for t in dot["encoding"]["tooltip"]]
+        assert titles[:3] == ["lane", "intra-op threads", titled[phase]["value_title"]]
+        assert "fit r\u00b2" not in titles
+        assert "work unit (tokens)" not in titles and "line" not in titles
+        assert ("primed fill (tokens)" in titles) is (phase == "decode")
+
+    decode = _island(h, "thread-decode")
+    # The steps are asked for, not always drawn: the label layer filters on a hover
+    # selection, declared by a fat invisible copy of the line so the pointer has
+    # something to land on. Filtered rather than dimmed, so an unhovered lane leaves
+    # no stray text in the plot.
+    (surface,) = [layer for layer in decode["layer"] if layer["mark"].get("opacity") == 0]
+    assert surface["mark"]["strokeWidth"] > 8  # a 2px path is not a hover target
+    (hover_param,) = surface["params"]
+    assert hover_param["select"]["on"] == "pointerover"
+    assert hover_param["select"]["fields"] == ["lane"]
+    # Never cleared: crossing a dot must not drop the labels, and the tooltip the dot
+    # then shows belongs to the same lane anyway.
+    assert hover_param["select"]["clear"] is False
+    # The surface sits below the dots, whose tooltips have to win the pointer.
+    marks = [(layer["mark"]["type"], layer["mark"].get("opacity")) for layer in decode["layer"]]
+    assert marks.index(("line", 0)) < marks.index(("point", None))
+
+    (steps,) = [
+        layer for layer in decode["layer"] if layer["transform"][0]["filter"].endswith("'step'")
+    ]
+    assert steps["mark"]["type"] == "text"
+    assert steps["encoding"]["text"]["field"] == "label"
+    assert steps["transform"][1] == {"filter": {"param": hover_param["name"], "empty": False}}
+    # the label rides the segment it describes, on both axes
+    assert steps["encoding"]["x"]["field"] == "threads"
+    assert steps["encoding"]["y"]["field"] == "value"
+
+    # Pointing at a lane brings the emphasis with the labels: the visible line and
+    # dot layers ride the same hover selection, hovered lane at full ink.
+    line = next(
+        layer
+        for layer in decode["layer"]
+        if layer["mark"]["type"] == "line" and layer["mark"].get("opacity") != 0
+    )
+    assert line["encoding"]["opacity"]["condition"]["param"] == hover_param["name"]
+    assert line["encoding"]["opacity"]["value"] < 1
+
+    # The table under the charts carries the ladder's coverage, one row per lane;
+    # what a step bought is the chart's hover, not a table cell.
+    for cell in ("Apple M1 Max \u00b7 cpu 8t", "2, 4, 8"):
+        assert cell in h
+    prefill = _island(h, "thread-prefill")
+    step_labels = {r["label"] for r in prefill["data"]["values"] if r["kind"] == "step"}
+    assert "4\u21928 threads: 89% of ideal" in step_labels
+
+
+def test_a_shelf_with_no_cpu_lane_renders_no_thread_section(tmp_path):
+    """No published machine carries a thread ladder yet, so the section has to be
+    absent rather than empty — and building without one must not raise."""
+    only_box = tmp_path / "published"
+    shutil.copytree(FIXTURES / "3090-box", only_box / "3090-box")
+    h = _build(tmp_path, published=only_box)
+    assert 'data-spec="thread' not in h
+    assert "Thread width" not in h
+    assert 'data-spec="grid"' in h  # the rest of the page is unaffected
+
+
+def test_wide_content_scrolls_inside_its_own_box(tmp_path):
+    """The page never scrolls sideways as a whole: a chart wider than the window
+    scrolls inside its island, and a wide table inside its own wrapper. The island rule
+    has to restate `display` against the class vega-embed stamps on it at mount time —
+    its injected `inline-block` would size the box to the chart and push the page."""
+    h = _build(tmp_path)
+    css = h.split("<style>")[1].split("</style>")[0]
+    island = next(line for line in css.splitlines() if line.startswith(".island,"))
+    assert ".island.vega-embed" in island
+    assert "display: block" in island and "overflow-x: auto" in island
+    assert ".scroll-x { overflow-x: auto; }" in css
+    # every table on the page opens inside one of those wrappers
+    before = re.findall(r"(.{0,40})<table>", h, re.S)
+    assert before, "no table rendered"
+    for prefix in before:
+        assert 'class="scroll-x"' in prefix, f"a table outside a wrapper: {prefix!r}"
+
+
+def test_build_is_self_contained(tmp_path):
+    h = _build(tmp_path)
+    assert "/* stub */" in h  # vega inlined from the cache
+    assert "<script src=" not in h and "<link" not in h  # nothing external
+
+
+def test_empty_shelf_still_advertises_the_one_liner(tmp_path):
+    empty = tmp_path / "published"
+    empty.mkdir()
+    h = _build(tmp_path, published=empty)
+    assert "No submissions yet" in h
+    assert site.INSTALL_BASH in h
+
+
+def test_hostile_submission_strings_never_execute(tmp_path):
+    """Every free-text field a submission controls, filled with a script-
+    breaking payload — the built page must contain no live script tag from it."""
+    poisoned = tmp_path / "published"
+    shutil.copytree(FIXTURES, poisoned)
+    doc_path = next(poisoned.glob("*/llamacpp-results.json"))
+    doc = json.loads(doc_path.read_text())
+    doc["machine"]["cpu"] = PAYLOAD
+    doc["machine"]["gpus"] = [PAYLOAD]
+    for run in doc["runs"]:
+        run["device"] = PAYLOAD
+        if run["job"].get("sample_completions"):
+            run["job"]["sample_completions"] = [PAYLOAD]
+    doc_path.write_text(json.dumps(doc))
+
+    h = _build(tmp_path, published=poisoned)
+    assert "<script>alert(1)" not in h  # never as live markup
+    # The payload IS present — as inert, escaped text in both contexts.
+    assert "\\u003c/script\\u003e" in h or "&lt;/script&gt;" in h
+
+
+# Every device string the shelf has produced so far, with the lane label and band
+# it must resolve to. The driver names a GPU only sometimes; when it doesn't, the
+# lane wears the chip it lives in.
+DEVICES = [
+    # (device, machine cpu, family) → (lane chip, device class)
+    ("Apple M5 Pro", "Apple M5 Pro", "cpu", "Apple M5 Pro", "CPU"),
+    ("Apple M5 Pro", "Apple M5 Pro", "mtl", "Apple M5 Pro", "integrated GPU"),
+    (
+        "Intel(R) Core(TM) Ultra 5 125U",
+        "Intel(R) Core(TM) Ultra 5 125U",
+        "cpu",
+        "Core Ultra 5 125U",
+        "CPU",
+    ),
+    (
+        "Intel(R) Graphics (MTL)",
+        "Intel(R) Core(TM) Ultra 5 125U",
+        "vulkan",
+        "Core Ultra 5 125U iGPU",
+        "integrated GPU",
+    ),
+    (
+        "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+        "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+        "cpu",
+        "Ryzen 7 255",
+        "CPU",
+    ),
+    (
+        "AMD Radeon Graphics (RADV PHOENIX)",
+        "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+        "vulkan",
+        "Ryzen 7 255 iGPU",
+        "integrated GPU",
+    ),
+    (
+        "AMD Radeon 760M Graphics (RADV PHOENIX)",
+        "AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics",
+        "vulkan",
+        "Ryzen 5 PRO 230 iGPU",
+        "integrated GPU",
+    ),
+    (
+        "AMD Ryzen 9 9950X 16-Core Processor",
+        "AMD Ryzen 9 9950X 16-Core Processor",
+        "cpu",
+        "Ryzen 9 9950X",
+        "CPU",
+    ),
+    # the desktop APU's iGPU: RADV reports the CPU's own brand string
+    (
+        "AMD Ryzen 9 9950X 16-Core Processor (RADV RAPHAEL_MENDOCINO)",
+        "AMD Ryzen 9 9950X 16-Core Processor",
+        "vulkan",
+        "Ryzen 9 9950X iGPU",
+        "integrated GPU",
+    ),
+    (
+        "NVIDIA GeForce RTX 5080",
+        "AMD Ryzen 9 9950X 16-Core Processor",
+        "vulkan",
+        "RTX 5080",
+        "discrete GPU",
+    ),
+    (
+        "NVIDIA GeForce RTX 3090",
+        "AMD Ryzen 9 5950X 16-Core Processor",
+        "cuda",
+        "RTX 3090",
+        "discrete GPU",
+    ),
+]
+
+
+@pytest.mark.parametrize(("device", "cpu", "family", "chip", "klass"), DEVICES)
+def test_lane_identity(device, cpu, family, chip, klass):
+    assert site._lane_chip(device, cpu, family) == chip
+    assert site._dev_class(device, cpu, family) == klass
+
+
+def test_width_says_the_machine_when_the_lane_undercounts_it():
+    """' 4t' alone reads as the size of the chip: an M1 lane running llama.cpp's
+    macOS default (the 4-core performance cluster) looked like a 4-core machine.
+    The suffix carries the machine wherever the width leaves cores idle, and
+    stays terse where it does not."""
+    assert site._width("cpu", 4, 4, 8) == " 4t (8C)"
+    assert site._width("cpu", 8, 8, 8) == " 8t"
+    assert site._width("cpu", 18, 6, 18) == " 6t/18t"
+    assert site._width("cpu", 4, 4, None) == " 4t"  # a submission predating the field
+    assert site._width("vulkan", 4, 4, 8) == ""
+
+
+def test_lanes_stay_distinct_across_identical_machines():
+    """Two of the same laptop must not pool into one lane."""
+    df = pd.DataFrame(
+        {
+            "provider": ["vulkan:0", "vulkan:0"],
+            "machine": ["nuc-a", "nuc-b"],
+            "device": ["Intel(R) Graphics (MTL)"] * 2,
+            "cpu": ["Intel(R) Core(TM) Ultra 5 125U"] * 2,
+            "cpu_cores": [12, 12],
+            "threads_batch": [12, 12],
+            "threads_decode": [12, 12],
+        }
+    )
+    lanes = site._with_lanes(df).lane
+    assert lanes.nunique() == 2
+    assert all("Core Ultra 5 125U iGPU · vulkan" in lane for lane in lanes)

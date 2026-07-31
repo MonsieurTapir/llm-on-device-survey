@@ -1,0 +1,562 @@
+{
+  "schema_version": "1",
+  "backend": "llamacpp",
+  "machine": {
+    "host": "m1-max",
+    "os": "macos",
+    "cpu": "Apple M1 Max",
+    "cpu_cores": 10,
+    "cpu_threads": 10,
+    "gpus": [
+      "Apple M1 Max"
+    ],
+    "memory": {
+      "total_gb": 64.0,
+      "channels": null,
+      "configured_mts": null,
+      "rated_mts": null,
+      "rank": null,
+      "dimms": null
+    }
+  },
+  "job_spawns": 2,
+  "probes": [
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "status": "ok",
+      "gemm": [
+        {
+          "m": 4096,
+          "n": 512,
+          "k": 4096,
+          "dtype": "f16",
+          "tflops_p50": 9.8,
+          "n_reps": 3
+        }
+      ],
+      "copy": [
+        {
+          "kind": "d2d",
+          "bytes": 268435456,
+          "gbs_p50": 350.0,
+          "n_reps": 3
+        },
+        {
+          "kind": "h2d",
+          "bytes": 268435456,
+          "gbs_p50": 340.0,
+          "n_reps": 3
+        }
+      ],
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    }
+  ],
+  "runs": [
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "geometry": {
+        "n_layer": 2,
+        "n_embd": 64,
+        "n_head": 4,
+        "n_head_kv": 2,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 4096,
+        "n_params": 1000000,
+        "file_bytes": 600000,
+        "context": {
+          "n_ctx": 2048,
+          "n_batch": 2048,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 100000,
+            "bytes": 60000
+          },
+          "body": {
+            "params": 900000,
+            "bytes": 540000
+          },
+          "head": {
+            "params": 0,
+            "bytes": 0
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CUDA0",
+            "model_bytes": 540000,
+            "context_bytes": 4096,
+            "compute_bytes": 1024
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 140.0
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 147.68
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 83.12
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 83.12
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 163.04
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 170.72
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 178.4
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 186.08
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 193.76
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 80.0,
+            "tps_min": 78.0,
+            "tps_max": 82.0,
+            "n_reps": 3
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 75.0,
+            "tps_min": 74.0,
+            "tps_max": 76.0,
+            "n_reps": 3
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 140.0,
+          "slope_ms_per_1k": 15.0,
+          "r2": 1.0,
+          "resid_max_pct": 0.0,
+          "n_points": 7
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 166.24,
+            "full_ms_fitted": 155.36,
+            "penalty_pct": 7.0
+          }
+        ],
+        "warmup_ms": 990.0,
+        "shader_bytes": null,
+        "shader_cache": "unavailable",
+        "thread_scaling": null
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            5000,
+            5000
+          ],
+          "model_load_ms": [
+            900,
+            950
+          ],
+          "context_init_ms": [
+            100,
+            120
+          ],
+          "warmup_ms": [
+            50,
+            60
+          ],
+          "ttft_ms": [
+            700,
+            750
+          ],
+          "decode_tps": [
+            40.0,
+            35.0
+          ],
+          "prefill_tps": null,
+          "completion_ms": [
+            4000,
+            4200
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            1500,
+            1550
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            1300,
+            1350
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            1200,
+            1250
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "The document describes ..."
+        ]
+      },
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    },
+    {
+      "provider": "cpu:0",
+      "device": "Apple M1 Max",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "geometry": {
+        "n_layer": 2,
+        "n_embd": 64,
+        "n_head": 4,
+        "n_head_kv": 2,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 4096,
+        "n_params": 1000000,
+        "file_bytes": 600000,
+        "context": {
+          "n_ctx": 2048,
+          "n_batch": 2048,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 100000,
+            "bytes": 60000
+          },
+          "body": {
+            "params": 900000,
+            "bytes": 540000
+          },
+          "head": {
+            "params": 0,
+            "bytes": 0
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CUDA0",
+            "model_bytes": 540000,
+            "context_bytes": 4096,
+            "compute_bytes": 1024
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 700.0
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 738.4
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 415.6
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 415.6
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 815.2
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 853.6
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 892.0
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 930.4
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 968.8
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 24.0,
+            "tps_min": 23.4,
+            "tps_max": 24.6,
+            "n_reps": 3
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 21.5,
+            "tps_min": 21.0,
+            "tps_max": 22.0,
+            "n_reps": 3
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 700.0,
+          "slope_ms_per_1k": 75.0,
+          "r2": 1.0,
+          "resid_max_pct": 0.0,
+          "n_points": 7
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 831.2,
+            "full_ms_fitted": 776.8,
+            "penalty_pct": 7.0
+          }
+        ],
+        "warmup_ms": 3200.0,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable",
+        "thread_scaling": {
+          "prefill": {
+            "points": [
+              {
+                "threads": 8,
+                "tokens": 128,
+                "ms": 212.4,
+                "tps": 602.64
+              },
+              {
+                "threads": 4,
+                "tokens": 128,
+                "ms": 378.6,
+                "tps": 338.09
+              },
+              {
+                "threads": 2,
+                "tokens": 128,
+                "ms": 719.5,
+                "tps": 177.9
+              }
+            ],
+            "fit": {
+              "model": "amdahl",
+              "floor_ms": 41.95,
+              "scaled_ms": 1353.886,
+              "r2": 0.99996,
+              "resid_max_pct": 0.42,
+              "n_points": 3
+            }
+          },
+          "decode": {
+            "points": [
+              {
+                "threads": 8,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 22.1
+              },
+              {
+                "threads": 4,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 20.4
+              },
+              {
+                "threads": 2,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 15.2
+              }
+            ],
+            "fit": {
+              "model": "saturating",
+              "rate_max_tps": 22.439,
+              "threads_scale": 1.7414,
+              "r2": 0.9971,
+              "resid_max_pct": 1.13,
+              "n_points": 3
+            }
+          }
+        }
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": null,
+          "model_load_ms": [
+            1100.0,
+            1150.0
+          ],
+          "context_init_ms": [
+            110.0,
+            130.0
+          ],
+          "warmup_ms": [
+            400.0,
+            420.0
+          ],
+          "ttft_ms": [
+            3500.0,
+            3600.0
+          ],
+          "decode_tps": [
+            21.0,
+            20.0
+          ],
+          "prefill_tps": [
+            443.0,
+            430.0
+          ],
+          "completion_ms": [
+            16000.0,
+            16500.0
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            1450,
+            1500
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            1400,
+            1450
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            1350,
+            1380
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "The document describes ..."
+        ]
+      },
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    },
+    {
+      "provider": "mtl",
+      "device": "Apple M1 Max",
+      "model": "qwen3-4B",
+      "quant": "q4",
+      "healthy": false,
+      "unhealthy_reason": "brain-check decode mismatch",
+      "vram_method": "unified",
+      "geometry": null,
+      "sweep": {
+        "status": "skipped",
+        "prefill": [],
+        "decode": [],
+        "fit": null,
+        "ubatch": [],
+        "warmup_ms": null,
+        "shader_bytes": null,
+        "shader_cache": "unavailable",
+        "thread_scaling": null
+      },
+      "job": {
+        "status": "skipped",
+        "task": "summarize-large"
+      },
+      "threads": {
+        "decode": 8,
+        "batch": 8
+      }
+    }
+  ]
+}

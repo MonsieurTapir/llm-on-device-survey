@@ -1,0 +1,351 @@
+"""Load on-device benchmark results into tidy DataFrames for cross-machine
+comparison.
+
+Each `survey run` writes one `<backend>-results.json` (validated against
+`results.schema.json`). Run the benchmark on N machines and you get N×
+sets of those files. The loaders fan over a directory tree, flatten every
+file, and concatenate — machine identity rides *inside* each file (the `machine`
+block), so merging is just "add machine columns and stack rows".
+
+Recommended layout — one subdir per machine so filenames don't collide:
+
+    results/
+      3090-box/   llamacpp-results.json
+      m1-max/     llamacpp-results.json
+
+Flat files directly under the root also load; their machine label is then derived
+from the in-file `machine` block instead of the directory name.
+
+Three frames, one per kind of measurement:
+
+- `load_results` — the validation job: one row per (machine, backend, model,
+  quant, provider). Every `[p50, max]` stat explodes into `<name>_p50` /
+  `<name>_max` (a null stat — e.g. VRAM on a CPU EP — explodes to NaN/NaN,
+  never 0). `threads_batch` / `threads_decode` carry the intra-op width each
+  phase actually ran — read them before comparing CPU lanes across machines,
+  because llama.cpp's default is per-OS ("every physical core" on linux, "the
+  top performance cluster" on macOS) and `cpu_cores` does not predict it.
+  Geometry scalars ride along (`geo_*`), as do the sweep's derived
+  parameters: `fit_*` (the prefill cost function and its fit quality),
+  `ubatch_penalty_pct_max` (dispatch-width sensitivity), and `shader_*`
+  (first-launch pipeline compilation — compare across machines only where
+  `shader_cache` is "redirected"). Cells that produced no
+  timing still get a row, flagged by `status`:
+
+      ok         a scored job with metrics
+      too_slow   backstop killed, or below the usable tok/s floor
+      errored    attempted but produced no sample — crash/OOM, not slowness
+      unhealthy  the (model, provider) failed its brain-check; nothing ran
+
+- `load_memory` — the memory cost curve: one row per allocator context point
+  from the sweep's `geometry.memory_points`, with `n_ctx` and the pooled
+  `weights_mb` / `kv_mb` / `compute_mb`. Exact allocator numbers (no spread);
+  what an estimator fits, and what the report reads at the job's context.
+
+- `load_sweeps` — one row per sweep point: `kind` ("prefill" | "decode").
+  Prefill rows are the instrumented pass's chunks (`chunk_ms` marginal,
+  `ttft_ms` cumulative at depth `tokens`); decode rows the tps spread per
+  `kv_fill`. Both phases carry their `threads_*` width. Points survive a non-ok
+  sweep status — partial data still informs.
+
+- `load_thread_scaling` — one row per thread-ladder point: `phase`
+  ("prefill" | "decode") × `threads` → `tps`. How each phase pays for intra-op
+  width on a CPU lane. The points are all of it: the ladder stops at the widest
+  width the lane runs, so the survey tool's fitted asymptotes are not carried here —
+  an asymptote is least constrained exactly where this measurement ends.
+
+- `load_probes` — one row per ceiling point: `kind` ("gemm" | "h2d" | "d2h" |
+  "d2d") with the measured `tflops` or `gbs`, plus the `threads_*` the lane
+  probed at. A CPU gemm ceiling is a property of that width, and on Apple it is
+  reached through Accelerate rather than the quantized kernels inference uses —
+  so it bounds f16 matmul, not q4 prefill.
+
+A missing number is *visible*, not silently absent.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pandas as pd
+
+# The results schema this loader understands; in lockstep with
+# results.schema.json's `schema_version`. An unknown version is a loud error,
+# not a silently-misaligned frame.
+SCHEMA_VERSION = "1"
+
+# Scalar fields copied straight off each run.
+_RUN_KEYS = ("provider", "device", "model", "quant", "healthy", "vram_method")
+
+# Geometry scalars worth having as columns (the full block incl. per-layer
+# typing stays in the JSON for consumers that need it).
+_GEO_KEYS = ("n_layer", "n_params", "file_bytes", "n_ctx_train")
+# The tensor-role split: `body` is what decode streams per token (embeddings are
+# row lookups, the head is tiny/tied) — the estimator's bytes/flops anchor.
+_GEO_TENSOR_KEYS = ("body", "embedding")
+
+
+def _slug(machine: dict) -> str:
+    """A filesystem-safe label for a machine with no directory name to borrow — its
+    `host` name, else its first GPU, else its CPU string."""
+    basis = (
+        machine.get("host") or (machine.get("gpus") or [None])[0] or machine.get("cpu", "unknown")
+    )
+    return re.sub(r"[^a-z0-9]+", "-", basis.lower()).strip("-") or "unknown"
+
+
+def _machine_label(path: Path, root: Path, machine: dict) -> str:
+    """Subdir name when the file lives in `results/<machine>/…` (lets you relabel
+    without re-running); otherwise the machine's own `host`, slugged."""
+    parent = path.parent
+    if parent.resolve() != root.resolve():
+        return parent.name
+    return _slug(machine)
+
+
+def _docs(root: str | Path):
+    """(label, machine-base columns, doc) per results file, version-checked."""
+    root = Path(root)
+    for f in sorted(root.glob("**/*-results.json")):
+        doc = json.loads(f.read_text())
+        if doc.get("schema_version") != SCHEMA_VERSION:
+            raise ValueError(
+                f"{f}: results schema_version={doc.get('schema_version')!r}, "
+                f"loader expects {SCHEMA_VERSION!r}"
+            )
+        machine = doc["machine"]
+        memory = machine["memory"]
+        base = {
+            "machine": _machine_label(f, root, machine),
+            "os": machine["os"],
+            "cpu": machine["cpu"],
+            "cpu_cores": machine["cpu_cores"],
+            "cpu_threads": machine["cpu_threads"],
+            "gpu": ", ".join(machine.get("gpus") or []) or "cpu",
+            "ram_gb": memory.get("total_gb"),
+            "ram_channels": memory.get("channels"),
+            "ram_mts": memory.get("configured_mts"),
+            "backend": doc["backend"],
+        }
+        yield base, doc
+
+
+def _explode(stats: dict, into: dict) -> None:
+    """Split each `[p50, max]` (or null) stat into `<name>_p50` / `<name>_max`."""
+    for name, stat in stats.items():
+        p50, mx = stat if stat else (None, None)
+        into[f"{name}_p50"] = p50
+        into[f"{name}_max"] = mx
+
+
+def _threads(into: dict, threads: dict | None) -> None:
+    """The per-phase intra-op thread counts as `threads_batch` / `threads_decode`.
+    A CPU rate is uninterpretable without them, and they are *not* implied by
+    `cpu_cores`: llama.cpp's default counts every physical core on linux but only
+    the top performance cluster on macOS, so peer-looking CPU lanes routinely ran
+    different widths. NaN when nothing ran."""
+    for phase in ("batch", "decode"):
+        into[f"threads_{phase}"] = (threads or {}).get(phase)
+
+
+def load_results(root: str | Path = "results") -> pd.DataFrame:
+    """The validation-job frame: one row per (machine, backend, model, quant,
+    provider). Raises ValueError on a schema_version mismatch; empty DataFrame
+    when no results files are found."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for run in doc["runs"]:
+            row = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            row["unhealthy_reason"] = run.get("unhealthy_reason")
+            _threads(row, run["threads"])
+            for key in _GEO_KEYS:
+                row[f"geo_{key}"] = (run.get("geometry") or {}).get(key)
+            for key in _GEO_TENSOR_KEYS:
+                role = ((run.get("geometry") or {}).get("tensors") or {}).get(key) or {}
+                row[f"geo_{key}_bytes"] = role.get("bytes")
+                row[f"geo_{key}_params"] = role.get("params")
+            job = run["job"]
+            row["task"] = job["task"] if run["healthy"] else None
+            row["status"] = job["status"] if run["healthy"] else "unhealthy"
+            row["sweep_status"] = run["sweep"]["status"]
+            # The sweep's own generation headline: its fastest measured fill. What
+            # the report ranks lanes by, so the ordering never rests on the job.
+            decode_tps = [p["tps_p50"] for p in run["sweep"]["decode"] if p["tps_p50"]]
+            row["sweep_decode_tps_max"] = max(decode_tps) if decode_tps else None
+            # The prefill cost function, as parameters rather than points: the
+            # per-dispatch term, the attention term, and the fit quality that
+            # stands in for the repeats the single-pass prefill doesn't have.
+            fit = run["sweep"]["fit"] or {}  # null below three full-width points
+            row["fit_width"] = fit.get("width")
+            row["fit_intercept_ms"] = fit.get("intercept_ms")
+            row["fit_slope_ms_per_1k"] = fit.get("slope_ms_per_1k")
+            row["fit_r2"] = fit.get("r2")
+            row["fit_resid_max_pct"] = fit.get("resid_max_pct")
+            # Dispatch-width sensitivity, worst of the measured depths: how much
+            # this silicon minds a narrower micro-batch.
+            penalties = [
+                u["penalty_pct"] for u in run["sweep"]["ubatch"] if u["penalty_pct"] is not None
+            ]
+            row["ubatch_penalty_pct_max"] = max(penalties) if penalties else None
+            # First-launch pipeline compilation (see the schema: only comparable
+            # across machines when shader_cache is "redirected").
+            row["shader_warmup_ms"] = run["sweep"]["warmup_ms"]
+            row["shader_bytes"] = run["sweep"]["shader_bytes"]
+            row["shader_cache"] = run["sweep"]["shader_cache"]
+            if job["status"] == "ok":
+                _explode(job["metrics"], row)
+                _explode(job["memory"], row)
+                row["sample_completion"] = (job["sample_completions"] or [None])[0]
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def load_sweeps(root: str | Path = "results") -> pd.DataFrame:
+    """The sweep-point frame: one row per measured point, `kind` prefill/decode.
+
+    Prefill rows are the instrumented pass's chunks: `tokens` is the prompt
+    depth the chunk reached (context + chunk), `chunk_ms` the chunk's own cost
+    (the marginal curve — its slope is the attention term), `ttft_ms` the
+    cumulative wall time through that depth. Decode rows carry the tps spread
+    at each kv_fill."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for run in doc["runs"]:
+            run_base = {
+                **base,
+                **{k: run[k] for k in _RUN_KEYS},
+                "sweep_status": run["sweep"]["status"],
+            }
+            _threads(run_base, run["threads"])
+            cum = 0.0
+            for p in run["sweep"]["prefill"]:
+                cum += p["ms"]
+                rows.append(
+                    {
+                        **run_base,
+                        "kind": "prefill",
+                        "tokens": p["context"] + p["tokens"],
+                        "kv_fill": None,
+                        "chunk_ms": p["ms"],
+                        "ttft_ms": round(cum, 2),
+                    }
+                )
+            for p in run["sweep"]["decode"]:
+                rows.append(
+                    {
+                        **run_base,
+                        "kind": "decode",
+                        "tokens": p["tokens"],
+                        "kv_fill": p["kv_fill"],
+                        "tps_p50": p["tps_p50"],
+                        "tps_min": p["tps_min"],
+                        "tps_max": p["tps_max"],
+                        "n_reps": p["n_reps"],
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def load_memory(root: str | Path = "results") -> pd.DataFrame:
+    """The memory-cost-curve frame: one row per allocator context point.
+
+    The lane's `threads_*` widths ride along so a label built from these rows is the
+    same label the other frames produce — a CPU lane is named by its thread width."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for run in doc["runs"]:
+            run_base = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            _threads(run_base, run["threads"])
+            for p in (run.get("geometry") or {}).get("memory_points") or []:
+                b = p["buffers"]
+                rows.append(
+                    {
+                        **run_base,
+                        "n_ctx": p["n_ctx"],
+                        "weights_mb": round(sum(x["model_bytes"] for x in b) / 1e6, 1),
+                        "kv_mb": round(sum(x["context_bytes"] for x in b) / 1e6, 1),
+                        "compute_mb": round(sum(x["compute_bytes"] for x in b) / 1e6, 1),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def load_thread_scaling(root: str | Path = "results") -> pd.DataFrame:
+    """The thread-ladder frame: one row per (machine, model, provider, phase,
+    threads), with the rate at that intra-op width.
+
+    `phase` is "prefill" | "decode". Rates compare *within* a (lane, model, phase)
+    — the ladder's work units are smaller than the main sweep's and deliberately
+    not comparable to it. `kv_fill` is NaN for prefill rows (measured from an empty
+    cache) and the primed depth for decode rows. Empty when no lane measured one.
+
+    The lane's `threads_*` widths ride along, so these rows label their lane the way
+    the other frames do and a ladder point can be read against the width the lane
+    actually runs."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for run in doc["runs"]:
+            scaling = run["sweep"].get("thread_scaling")
+            if not scaling:
+                continue
+            run_base = {**base, **{k: run[k] for k in _RUN_KEYS}}
+            _threads(run_base, run["threads"])
+            for phase in ("prefill", "decode"):
+                for p in (scaling.get(phase) or {}).get("points") or []:
+                    rows.append(
+                        {
+                            **run_base,
+                            "phase": phase,
+                            "threads": p["threads"],
+                            "tokens": p["tokens"],
+                            "tps": p["tps"],
+                            "kv_fill": p.get("kv_fill"),
+                            "ms": p.get("ms"),
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
+def load_probes(root: str | Path = "results") -> pd.DataFrame:
+    """The device-ceiling frame: one row per probe point."""
+    rows: list[dict] = []
+    for base, doc in _docs(root):
+        for probe in doc.get("probes") or []:
+            probe_base = {
+                **base,
+                "provider": probe["provider"],
+                "device": probe["device"],
+                "status": probe["status"],
+            }
+            _threads(probe_base, probe["threads"])
+            for g in probe["gemm"]:
+                rows.append(
+                    {
+                        **probe_base,
+                        "kind": "gemm",
+                        "m": g["m"],
+                        "n": g["n"],
+                        "k": g["k"],
+                        "dtype": g["dtype"],
+                        "tflops": g["tflops_p50"],
+                        "gbs": None,
+                        "n_reps": g["n_reps"],
+                    }
+                )
+            for c in probe["copy"]:
+                rows.append(
+                    {
+                        **probe_base,
+                        "kind": c["kind"],
+                        "m": None,
+                        "n": None,
+                        "k": None,
+                        "dtype": None,
+                        "tflops": None,
+                        "gbs": c["gbs_p50"],
+                        "n_reps": c["n_reps"],
+                    }
+                )
+    return pd.DataFrame(rows)
