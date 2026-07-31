@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Host | ryzen-9-9950x-rtx-5080 |
+| Host | monsieurtapir-workstation |
 | OS | linux |
 | CPU | AMD Ryzen 9 9950X 16-Core Processor (16C/32T) |
 | GPU | NVIDIA GeForce RTX 5080 |
@@ -15,9 +15,9 @@ Status legend: `ok` (measured) · `too_slow` (backstop killed / below the floor)
 
 | provider | device | threads | gemm TFLOP/s | d2d GB/s | probe |
 |---|---|---|---|---|---|
-| vulkan:0 | NVIDIA GeForce RTX 5080 | 16 | 107.92 | 816.18 | ok |
-| vulkan:1 | AMD Ryzen 9 9950X 16-Core Processor (RADV RAPHAEL_MENDOCINO) | 16 | 0.67 | 64.84 | ok |
-| cpu:0 | AMD Ryzen 9 9950X 16-Core Processor | 16 | 1.38 | 34.31 | ok |
+| vulkan:0 | NVIDIA GeForce RTX 5080 | 16 | 106.73 | 810.22 | ok |
+| vulkan:1 | AMD Ryzen 9 9950X 16-Core Processor (RADV RAPHAEL_MENDOCINO) | 16 | 0.67 | 64.67 | ok |
+| cpu:0 | AMD Ryzen 9 9950X 16-Core Processor | 16 | 1.58 | 36.12 | ok |
 
 | model | quant | provider | threads | sweep | job |
 |---|---|---|---|---|---|
