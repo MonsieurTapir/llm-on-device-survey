@@ -1,0 +1,41 @@
+# ─── Local data; never tracked ───
+# Optional local stack checkouts: backends fetch their pinned deps at build time;
+# point one at a clone here via its *_SOURCE_DIR override (or keep as reference).
+third_party/
+# Model vaults: multi-GB; fetch the ones you want with `survey fetch`.
+# The registry itself (models.yaml) is tracked.
+models/*
+!models/models.yaml
+!models/README.md
+
+# ─── Backend build outputs (sources tracked, artifacts not) ───
+backends/*/build/
+# per-target packaging builds + staged contributor kits (packaging/package.sh)
+backends/*/build-dist/
+dist/
+# kits unpacked at the repo root by the run.sh/run.ps1 bootstrap
+/llm-on-device-survey-*/
+/llm-on-device-survey-*.tar.gz
+/llm-on-device-survey-*.zip
+/llm-on-device-survey-*.sha256
+/submission-*.tar.gz
+
+# ─── Runner (uv) ───
+.venv/
+.venv/
+__pycache__/
+__marimo__/
+*.pyc
+
+# ─── Generated & local output ───
+# local runs land here; published runs are the tracked submissions/ folder
+results/
+# the report — built by CI from submissions/ (pages.yml); a local build is a
+# preview, never committed
+site/
+
+# ─── Editor / OS ───
+.DS_Store
+
+# Agentic scratchpad
+artifacts/
