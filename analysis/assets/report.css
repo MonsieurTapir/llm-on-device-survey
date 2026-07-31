@@ -1,0 +1,147 @@
+:root {
+  --bg: #fcfcfb; --ink: #1d2229; --ink2: #5b6570; --line: #e4e2dd;
+  --card: #f4f3f0; --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16181c; --ink: #e8e6e1; --ink2: #9aa2ab; --line: #2e323a;
+          --card: #1f2228; --accent: #3987e5; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto; padding: 2rem 1.25rem 4rem; max-width: 62rem;
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
+h2 { font-size: 1.15rem; margin: 2.2rem 0 .4rem; }
+a { color: var(--accent); }
+.pitch { color: var(--ink2); margin: 0 0 .8rem; }
+.fine { color: var(--ink2); font-size: .88rem; }
+.chips { display: flex; gap: .5rem; flex-wrap: wrap; }
+.chip { background: var(--card); border-radius: 999px; padding: .15rem .7rem;
+        font-size: .85rem; color: var(--ink2); }
+.chip b { color: var(--ink); }
+
+/* the contribute call to action: a closed bar until the reader wants the command */
+.cta { background: var(--card); border-radius: 10px; margin: 1.4rem 0 0;
+       border-left: 3px solid var(--accent); }
+.cta > summary { display: flex; align-items: baseline; gap: .6rem; cursor: pointer;
+                 padding: .8rem 1rem; list-style: none; }
+.cta > summary::-webkit-details-marker { display: none; }
+.cta > summary b { color: var(--accent); }
+.cta > summary::after { content: "+"; margin-left: auto; color: var(--ink2); }
+.cta[open] > summary::after { content: "–"; }
+.cta-body { padding: 0 1rem .9rem; }
+.cmd { display: flex; align-items: center; gap: .6rem; margin: .5rem 0; }
+.cmd .os { flex: 0 0 7.5rem; color: var(--ink2); font-size: .85rem; }
+.cmd code {
+  /* the raw.githubusercontent URL never fits one line — wrap, don't scroll */
+  flex: 1; white-space: pre-wrap; word-break: break-all; padding: .45rem .6rem;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  font: .82rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+button.copy {
+  flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg);
+  color: var(--ink); border-radius: 6px; padding: .35rem .7rem;
+  font-size: .82rem; cursor: pointer;
+}
+button.copy:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Each chart scrolls inside its own box, so a chart wider than the window never
+   drags the page sideways with it. `display` is restated on the class vega-embed
+   stamps on the island as it mounts: that stylesheet is injected at embed time and
+   would otherwise win, and its `inline-block` makes the box shrink-to-fit the chart
+   — which is the one thing a scroll container must not do. */
+.island, .island.vega-embed { display: block; overflow-x: auto; max-width: 100%;
+                              margin: .6rem 0; }
+/* Side-by-side charts where two fit, stacked where they do not — and on one narrow
+   line an island is allowed to be narrower than its chart, because it scrolls. */
+.curves { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.curves > .island { flex: 0 1 auto; min-width: 0; }
+/* A wide table scrolls in its own box too, for the same reason. */
+.scroll-x { overflow-x: auto; }
+/* Vega's tooltip, in the page's own ink and type.
+   Its default is a 10px sans-serif card in fixed white-on-black with the value cell set
+   to `display: block` — which takes the value out of the table and out of line with its
+   own key, and leaves a white card on the dark surface. Here it is one card in the
+   page's colors, and each fact is one row: key against value, both on the same
+   baseline. It is a fixed-position element on the body, so no island's scroll box can
+   clip it; the width is bounded by the window because vega places the card beside the
+   cursor and, when it fits nowhere, off the left edge (report.js nudges it back).
+   Every selector leads with `body` and repeats vega's own `table tr` to outrank the
+   rules it injects when the first chart mounts — its `#vg-tooltip-element table tr td`
+   is more specific than any short form of the same thing. */
+body #vg-tooltip-element {
+  max-width: calc(100vw - 1.2rem); box-sizing: border-box;
+  padding: .4rem .55rem; border-radius: 8px;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 18%);
+  font: .8rem/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body #vg-tooltip-element table { border-spacing: 0; }
+body #vg-tooltip-element table tr td {
+  padding: .08rem 0; vertical-align: baseline; overflow: visible;
+  text-overflow: clip; border: 0;
+}
+/* Wide enough that none of the page's field names wraps: a wrapped key reads as two
+   facts. The values wrap instead, which is the column that can afford to. */
+body #vg-tooltip-element table tr td.key {
+  color: var(--ink2); text-align: right; padding-right: .45rem; max-width: 14rem;
+  font-weight: 400; white-space: normal;
+}
+body #vg-tooltip-element table tr td.value {
+  display: table-cell; text-align: left; max-width: min(15rem, 45vw);
+  max-height: none; white-space: normal; font-variant-numeric: tabular-nums;
+}
+details { margin: .5rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+/* an aside inside a section's fine print: the detail that would be a wall inline */
+details.fine > summary { font-weight: 400; color: var(--ink2); }
+details.fine > summary:hover { color: var(--ink); }
+details.fine p { margin: .4rem 0 0; }
+
+/* the tail: one fold, its four tables behind a tab strip */
+.fold { margin: 2.2rem 0 0; border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line); }
+.fold > summary { display: flex; align-items: baseline; gap: .5rem;
+                  padding: .7rem .1rem; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "+"; color: var(--ink2); font-weight: 400;
+                          width: .7rem; }
+.fold[open] > summary::before { content: "–"; }
+.fold > summary .hint { margin-left: auto; color: var(--ink2); font-weight: 400;
+                        font-size: .85rem; }
+.fold > :last-child { margin-bottom: 1rem; }
+.tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin: .1rem 0 .6rem; }
+.tab { background: none; border: 0; border-radius: 6px; cursor: pointer;
+       color: var(--ink2); font: inherit; font-size: .85rem; padding: .25rem .6rem; }
+.tab:hover { color: var(--ink); }
+.tab.on { background: var(--card); color: var(--ink); font-weight: 600; }
+.panel > .fine:first-child { margin-top: 0; }
+
+table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
+th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); }
+th { color: var(--ink2); font-weight: 600; }
+pre {
+  background: var(--card); border-radius: 8px; padding: .7rem .9rem;
+  overflow-x: auto; white-space: pre-wrap; font-size: .82rem;
+}
+footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+
+/* the one control row: it scopes every chart on the page */
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .9rem;
+  background: var(--card); border-radius: 8px; padding: .55rem .8rem;
+  margin: .9rem 0 .2rem; font-size: .85rem; color: var(--ink2); }
+.controls label { display: flex; align-items: center; gap: .35rem; }
+.controls select { background: var(--bg); color: var(--ink); font: inherit;
+  border: 1px solid var(--line); border-radius: 5px; padding: .2rem 1.4rem .2rem .4rem; }
+/* the task row's token counts: same field as the selects, sized for five digits */
+.controls input[type="number"] { background: var(--bg); color: var(--ink);
+  font: inherit; border: 1px solid var(--line); border-radius: 5px;
+  padding: .2rem .3rem; width: 5rem; }
+/* what a token count is in words, beside the field that holds the tokens */
+.controls .words { color: var(--ink2); font-size: .78rem; white-space: nowrap; }
+.controls .fine { margin-left: auto; }
+/* a control the current reading has no use for, and the panels behind the tab strip */
+.hidden { display: none !important; }
+#task-note { margin: .4rem 0 0; }
