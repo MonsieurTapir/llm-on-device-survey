@@ -1,0 +1,17 @@
+# Provider-health gate. One trivial three-turn task run once per
+# (model, provider) BEFORE anything timed — inside the sweep spawn, on the
+# sweep's own model load (`sweep --gate`), so health costs no extra spawn. A
+# provider is `healthy` only if every turn's `expect` check passes; otherwise
+# the exe measures no sweep point and the survey tool skips the job. This catches
+# broken plumbing (wrong chat template, misconfigured provider, degenerate
+# decode) up front — it is NOT a quality benchmark.
+- name: brain-check
+  max_context_length: 512
+  messages:
+    - {role: system, content: "You are a helpful assistant."}
+    - {role: user, content: "What color is the daytime sky? Answer in one English word."}
+    - {role: assistant, nb_tokens: 16, expect: ["blue"]}
+    - {role: user, content: "What is the capital of France? Answer in one word."}
+    - {role: assistant, nb_tokens: 16, expect: ["paris"]}
+    - {role: user, content: "What is 2 + 2? Reply with just the number."}
+    - {role: assistant, nb_tokens: 8, expect: ["4", "four"]}
