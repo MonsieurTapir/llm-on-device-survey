@@ -1,0 +1,370 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MonsieurTapir/llm-on-device-survey/schema/results.schema.json",
+  "title": "Aggregated results object",
+  "description": "Written by the survey tool — one per backend. Per (model, quant, provider): the model geometry as the runtime reported it, aggregated sweep points, and the validation job's metrics. Per provider: device ceiling probes. Derived from the raw traces; `bench aggregate` re-derives it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "backend", "machine", "job_spawns", "probes", "runs"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "backend": { "enum": ["llamacpp"] },
+    "machine": {
+      "type": "object",
+      "required": ["host", "os", "cpu", "cpu_cores", "cpu_threads", "gpus", "memory"],
+      "properties": {
+        "host": { "type": "string", "description": "Machine name — hostname, or `bench run --machine`. The analysis loader's label when results aren't under a per-machine subdir." },
+        "os": { "enum": ["linux", "macos", "windows"] },
+        "cpu": { "type": "string" },
+        "cpu_cores": { "type": "integer", "minimum": 1, "description": "Physical cores." },
+        "cpu_threads": { "type": "integer", "minimum": 1, "description": "Logical cores (SMT)." },
+        "gpus": { "type": "array", "items": { "type": "string" } },
+        "memory": { "$ref": "#/$defs/memoryInfo" }
+      }
+    },
+    "job_spawns": { "type": "integer", "minimum": 1, "description": "S: process re-spawns for the validation job (default 1). Sweep and probe points carry their own per-point n — repetition there is adaptive, in-process." },
+    "probes": {
+      "type": "array",
+      "description": "Device ceilings, one entry per device lane that was probed.",
+      "items": { "$ref": "#/$defs/probeResult" }
+    },
+    "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } }
+  },
+  "$defs": {
+    "threads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decode", "batch"],
+      "description": "The intra-op thread counts this lane actually ran, per phase — see events.schema.json $defs.threads. Carried here because a CPU rate is uninterpretable without it and `machine.cpu_cores` does not predict it: what \"all cores\" means is a per-OS decision (linux counts every physical core, macOS only the top performance cluster).",
+      "properties": {
+        "decode": { "type": "integer", "minimum": 1 },
+        "batch": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "nullableThreads": {
+      "oneOf": [
+        { "$ref": "#/$defs/threads" },
+        { "type": "null", "description": "No spawn reported it — nothing ran (errored probe, unhealthy cell)." }
+      ]
+    },
+    "stat": {
+      "type": "array",
+      "description": "[p50, max] — median is the estimate, max flags instability.",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "nullableStat": {
+      "oneOf": [
+        { "$ref": "#/$defs/stat" },
+        { "type": "null", "description": "Not measurable here (e.g. *_vram on a CPU EP)." }
+      ]
+    },
+    "memoryInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_gb", "channels", "configured_mts", "rated_mts", "rank", "dimms"],
+      "description": "Installed memory as configured — the source of nominal bandwidth (channels × width × configured MT/s), never the CPU's spec-sheet maximum. Fields beyond total_gb are null when the platform tool (dmidecode / system_profiler) was unavailable.",
+      "properties": {
+        "total_gb": { "type": "number", "minimum": 0 },
+        "channels": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }], "description": "Populated memory channels." },
+        "configured_mts": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }], "description": "MT/s the memory actually runs at." },
+        "rated_mts": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }], "description": "MT/s the DIMMs are rated for (differs from configured when a profile is off)." },
+        "rank": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }], "description": "Ranks per DIMM (min across DIMMs when mixed)." },
+        "dimms": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["size_gb", "configured_mts", "rated_mts", "rank"],
+                "properties": {
+                  "size_gb": { "type": "number", "minimum": 0 },
+                  "configured_mts": { "oneOf": [{ "type": "integer" }, { "type": "null" }] },
+                  "rated_mts": { "oneOf": [{ "type": "integer" }, { "type": "null" }] },
+                  "rank": { "oneOf": [{ "type": "integer" }, { "type": "null" }] }
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "probeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "device", "status", "threads", "gemm", "copy"],
+      "properties": {
+        "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*:[0-9]+$", "description": "Device lane: <family>:<index> (see events.schema.json)." },
+        "device": { "type": "string" },
+        "status": { "enum": ["ok", "errored"] },
+        "threads": { "$ref": "#/$defs/nullableThreads" },
+        "gemm": {
+          "type": "array",
+          "description": "Per-point matmul throughput; the ceiling estimate is the best point.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["m", "n", "k", "dtype", "tflops_p50", "n_reps"],
+            "properties": {
+              "m": { "type": "integer" }, "n": { "type": "integer" }, "k": { "type": "integer" },
+              "dtype": { "type": "string" },
+              "tflops_p50": { "type": "number", "minimum": 0 },
+              "n_reps": { "type": "integer", "minimum": 1, "description": "Repeats behind the median." }
+            }
+          }
+        },
+        "copy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "bytes", "gbs_p50", "n_reps"],
+            "properties": {
+              "kind": { "enum": ["h2d", "d2h", "d2d"] },
+              "bytes": { "type": "integer", "minimum": 1 },
+              "gbs_p50": { "type": "number", "minimum": 0 },
+              "n_reps": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "description": "The events geometry block, carried verbatim from the sweep (or job) spawn — see events.schema.json $defs.geometry for field semantics.",
+      "required": ["n_layer", "n_embd", "n_head", "n_head_kv", "n_swa", "n_ctx_train", "n_params", "file_bytes", "context", "layers", "tensors", "buffers"]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "device", "model", "quant", "healthy", "vram_method", "threads", "geometry", "sweep", "job"],
+      "properties": {
+        "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*:[0-9]+$", "description": "Device lane: <family>:<index> (see events.schema.json)." },
+        "device": { "type": "string" },
+        "model": { "type": "string" },
+        "quant": { "enum": ["fp16", "q8", "q4", "q2"] },
+        "threads": { "$ref": "#/$defs/nullableThreads" },
+        "healthy": { "type": "boolean", "description": "Brain-check passed for this (model, provider)." },
+        "unhealthy_reason": { "type": "string", "description": "Present iff healthy=false: which brain-check failed and why; sweep and job were skipped." },
+        "vram_method": { "enum": ["nvml", "drm", "unified", "n/a"], "description": "How per-PID VRAM was obtained: NVML, DRM fdinfo's device-local pool, unified memory, or unavailable." },
+        "geometry": { "oneOf": [{ "$ref": "#/$defs/geometry" }, { "type": "null", "description": "No spawn got far enough to report it." }] },
+        "sweep": { "$ref": "#/$defs/sweepResult" },
+        "job": { "$ref": "#/$defs/jobResult" }
+      }
+    },
+    "sweepResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "prefill", "decode", "fit", "ubatch", "thread_scaling", "warmup_ms", "shader_bytes", "shader_cache"],
+      "description": "Aggregated sweep points, plus what they reduce to: `fit` is the prefill cost function's parameters, `ubatch` the lane's dispatch-width sensitivity, `thread_scaling` how each phase pays for intra-op threads. Points may be present with a non-ok status: whatever completed before the failure is kept (a partial sweep still informs the fit).",
+      "properties": {
+        "status": { "enum": ["ok", "too_slow", "errored", "skipped"], "description": "skipped = the gate (carried by this same spawn) failed, so no point was measured. too_slow = the survey tool hang guard killed the spawn." },
+        "prefill": {
+          "type": "array",
+          "description": "Chunk timings of the single instrumented pass — the marginal cost curve (ms vs the context the chunk was ingested at); TTFT at depth d is the cumulative sum through d. A short series is a small measured envelope (slow silicon under the sweep budget), not missing data.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["context", "tokens", "ms"],
+            "properties": {
+              "context": { "type": "integer", "minimum": 0, "description": "KV depth before this chunk." },
+              "tokens": { "type": "integer", "minimum": 1, "description": "Dispatch width: the deployment ubatch, or a fraction of it at the depths the pass subdivides (see `ubatch`)." },
+              "ms": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "fit": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["width", "intercept_ms", "slope_ms_per_1k", "r2", "resid_max_pct", "n_points"],
+          "description": "Least-squares line through the full-width prefill chunks — the two parameters of the prefill cost function, evaluable at prompt lengths that were never measured. Null below three full-width points. r2/resid_max_pct are the quality indicators: this pass runs once by design (nothing is measured twice), so scatter around the line is the only evidence that a point was disturbed rather than real.",
+          "properties": {
+            "width": { "type": "integer", "minimum": 1, "description": "Full dispatch width the fit was taken over." },
+            "intercept_ms": { "type": "number", "description": "Depth-independent cost of one dispatch (the matmul term)." },
+            "slope_ms_per_1k": { "type": "number", "description": "Marginal cost of another 1k of preceding context (the attention term)." },
+            "r2": { "type": ["number", "null"] },
+            "resid_max_pct": { "type": ["number", "null"], "description": "Largest residual as a percent of mean chunk cost." },
+            "n_points": { "type": "integer", "minimum": 3 }
+          }
+        },
+        "ubatch": {
+          "type": "array",
+          "description": "Dispatch-width sensitivity: what one chunk cost as several narrower dispatches, against what the fit says one full-width dispatch costs at that depth. An indicator, not a second operating point — the context is still open at the full n_ubatch and each part pays its own synchronization — so it overstates a true narrower-n_ubatch run somewhat. Empty when nothing was subdivided or no fit was possible.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["context", "width", "n_parts", "parts_ms", "full_ms_fitted", "penalty_pct"],
+            "properties": {
+              "context": { "type": "integer", "minimum": 0 },
+              "width": { "type": "integer", "minimum": 1, "description": "Width of each narrower dispatch." },
+              "n_parts": { "type": "integer", "minimum": 2 },
+              "parts_ms": { "type": "number", "minimum": 0, "description": "Measured total for the narrower dispatches." },
+              "full_ms_fitted": { "type": "number", "minimum": 0, "description": "What the fit predicts one full-width dispatch costs here." },
+              "penalty_pct": { "type": ["number", "null"], "description": "parts_ms over full_ms_fitted as a percent; positive means narrower dispatches cost more." }
+            }
+          }
+        },
+        "thread_scaling": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["prefill", "decode"],
+              "description": "How each phase pays for intra-op thread width, on CPU lanes. Widths walk DOWN from every physical core, through the lane's own default (above the top lies only SMT, which is not walked). The work units are smaller than the main ladder's and NOT comparable to it — only the ratio between widths is claimed — and each phase is sampled where it is cheap: prefill from an empty cache, decode at a fill the pass already primed. A scaling indicator, not a second operating point. The two phases carry DIFFERENT fit shapes on purpose: prefill is compute-bound and Amdahl-clean, decode saturates a shared memory path and needs a saturating form. Both fits are asymptotes over a ladder that ends at the widest width the lane runs, so the report publishes the points and the ratios between them and draws neither fit.",
+              "properties": {
+                "prefill": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["points", "fit"],
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["threads", "tokens", "ms", "tps"],
+                        "properties": {
+                          "threads": { "type": "integer", "minimum": 1, "description": "n_threads_batch at this point." },
+                          "tokens": { "type": "integer", "minimum": 1 },
+                          "ms": { "type": "number", "minimum": 0 },
+                          "tps": { "type": ["number", "null"], "minimum": 0 }
+                        }
+                      }
+                    },
+                    "fit": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["model", "floor_ms", "scaled_ms", "r2", "resid_max_pct", "n_points"],
+                          "description": "Amdahl's form: ms = floor_ms + scaled_ms/N. scaled_ms is the work threads divide, floor_ms what no width removes — a small floor is a phase that keeps paying for cores.",
+                          "properties": {
+                            "model": { "const": "amdahl" },
+                            "floor_ms": { "type": "number" },
+                            "scaled_ms": { "type": "number" },
+                            "r2": { "type": ["number", "null"] },
+                            "resid_max_pct": { "type": ["number", "null"], "minimum": 0 },
+                            "n_points": { "type": "integer", "minimum": 2 }
+                          }
+                        },
+                        { "type": "null", "description": "Fewer than two widths measured." }
+                      ]
+                    }
+                  }
+                },
+                "decode": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["points", "fit"],
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["threads", "kv_fill", "tokens", "tps"],
+                        "properties": {
+                          "threads": { "type": "integer", "minimum": 1, "description": "n_threads at this point." },
+                          "kv_fill": { "type": "integer", "minimum": 0, "description": "KV depth before the burst; identical across widths, so the rates compare. Deep by preference — shallow, there is almost no KV to attend over and the scaling flattens into noise." },
+                          "tokens": { "type": "integer", "minimum": 2 },
+                          "tps": { "type": "number", "minimum": 0 }
+                        }
+                      }
+                    },
+                    "fit": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["model", "rate_max_tps", "threads_scale", "r2", "resid_max_pct", "n_points"],
+                          "description": "Saturating form: tok/s = rate_max_tps · (1 − e^(−N / threads_scale)). Width for X% of peak is −threads_scale · ln(1 − X), which is the number a power-management caller wants. Chosen over Amdahl and over a hard-knee roofline by fit against a ten-point ladder; saturation is gradual, so no single width is free.",
+                          "properties": {
+                            "model": { "const": "saturating" },
+                            "rate_max_tps": { "type": "number", "minimum": 0, "description": "The asymptote: tok/s an unbounded width would approach." },
+                            "threads_scale": { "type": "number", "exclusiveMinimum": 0, "description": "Characteristic width of the saturation; small means decode stops rewarding cores early." },
+                            "r2": { "type": ["number", "null"] },
+                            "resid_max_pct": { "type": ["number", "null"], "minimum": 0 },
+                            "n_points": { "type": "integer", "minimum": 2 }
+                          }
+                        },
+                        { "type": "null", "description": "Fewer than two widths measured." }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            { "type": "null", "description": "No ladder: a GPU lane, an unhealthy cell, or a trace predating the measurement." }
+          ]
+        },
+        "warmup_ms": { "type": ["number", "null"], "minimum": 0, "description": "The sweep spawn's warmup span, which walks every dispatch width the pass will use. Compute pipelines are built lazily on first use, so on a lane that compiles them this is the driver building this model's pipeline set from scratch — a real first-launch cost, normally invisible because the driver caches it per machine. The survey tool hands each cell's sweep an empty cache directory to make it deterministic. On a lane that compiles nothing it is just the warmup's own compute; shader_bytes distinguishes the two. Null when the spawn emitted nothing." },
+        "shader_bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Bytes that compile left in the cache directory — the on-disk size of the compiled pipeline set, 0 where there was nothing to compile. Null when unmeasurable." },
+        "shader_cache": { "enum": ["redirected", "unavailable"], "description": "Whether the shader cache location was pinnable. 'redirected' = the survey tool pinned it, so warmup_ms is a deterministic from-scratch compile. 'unavailable' = the platform honours none of the cache-path variables the survey tool sets (macOS/Metal exposes no path or disable knob; the Windows vendor drivers are not Mesa and ignore all three), so warmup_ms reflects unknown prior machine state and does not compare across machines. It is still a real first launch — just not necessarily a cold one." },
+        "decode": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kv_fill", "tokens", "tps_p50", "tps_min", "tps_max", "n_reps"],
+            "properties": {
+              "kv_fill": { "type": "integer", "minimum": 0 },
+              "tokens": { "type": "integer", "minimum": 2 },
+              "tps_p50": { "type": "number", "minimum": 0 },
+              "tps_min": { "type": "number", "minimum": 0 },
+              "tps_max": { "type": "number", "minimum": 0 },
+              "n_reps": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "jobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "task"],
+      "description": "The validation job — a real end-to-end task whose measured cost checks what the sweeps predict. metrics/memory/sample_completions present iff status is ok.",
+      "properties": {
+        "status": { "enum": ["ok", "too_slow", "errored", "skipped"] },
+        "task": { "type": "string" },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cold_start_ms", "model_load_ms", "context_init_ms", "warmup_ms", "ttft_ms", "decode_tps", "prefill_tps", "completion_ms"],
+          "properties": {
+            "cold_start_ms": { "$ref": "#/$defs/nullableStat", "description": "First-touch load (cold page cache): model-load + context-init, n=1." },
+            "model_load_ms": { "$ref": "#/$defs/stat", "description": "Warm load phase — read/mmap weights and place on device." },
+            "context_init_ms": { "$ref": "#/$defs/stat", "description": "Warm load phase — allocate KV cache / compute graph / context." },
+            "warmup_ms": { "$ref": "#/$defs/stat", "description": "One-time warm pass, once per process — for the job, one token in and one token out, enough to force the context allocation. Its spawn inherits the cell's shader cache already populated by the sweep, so there is nothing left to compile; the sweep's own warmup (sweep.warmup_ms) is the one that walks every dispatch width. Not comparable with traces recorded before the job's warm pass was cut back to a single token, where it also walked the widths and the task's own prompts." },
+            "ttft_ms": { "$ref": "#/$defs/stat" },
+            "decode_tps": { "$ref": "#/$defs/stat" },
+            "prefill_tps": { "$ref": "#/$defs/nullableStat" },
+            "completion_ms": { "$ref": "#/$defs/stat" }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "description": "Per-phase footprint over the job iterations, sampled from outside. Decode gets peak (what must fit) and sustained (median — the steady working set); they diverge when a transient rides into the decode window.",
+          "additionalProperties": false,
+          "required": ["prefill_rss_peak_mb", "prefill_vram_peak_mb", "decode_rss_peak_mb", "decode_vram_peak_mb", "decode_rss_sustained_mb", "decode_vram_sustained_mb"],
+          "properties": {
+            "prefill_rss_peak_mb": { "$ref": "#/$defs/nullableStat" },
+            "prefill_vram_peak_mb": { "$ref": "#/$defs/nullableStat" },
+            "decode_rss_peak_mb": { "$ref": "#/$defs/nullableStat" },
+            "decode_vram_peak_mb": { "$ref": "#/$defs/nullableStat" },
+            "decode_rss_sustained_mb": { "$ref": "#/$defs/nullableStat" },
+            "decode_vram_sustained_mb": { "$ref": "#/$defs/nullableStat" }
+          }
+        },
+        "sample_completions": {
+          "type": "array",
+          "description": "A few decoded completions carried up from the events so a human can eyeball that the stack produced real text. Inspection aid only.",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}
