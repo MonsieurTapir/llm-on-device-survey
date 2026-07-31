@@ -1,0 +1,3006 @@
+{
+  "schema_version": "1",
+  "backend": "llamacpp",
+  "machine": {
+    "host": "apple-m5-pro",
+    "os": "macos",
+    "cpu": "Apple M5 Pro",
+    "cpu_cores": 18,
+    "cpu_threads": 18,
+    "gpus": [
+      "Apple M5 Pro"
+    ],
+    "memory": {
+      "total_gb": 48.0,
+      "channels": null,
+      "configured_mts": null,
+      "rated_mts": null,
+      "rank": null,
+      "dimms": null
+    }
+  },
+  "job_spawns": 1,
+  "probes": [
+    {
+      "provider": "mtl:0",
+      "device": "Apple M5 Pro",
+      "status": "ok",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "gemm": [
+        {
+          "m": 4096,
+          "n": 512,
+          "k": 4096,
+          "dtype": "f16",
+          "tflops_p50": 4.31,
+          "n_reps": 5
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 8192,
+          "dtype": "f16",
+          "tflops_p50": 7.2,
+          "n_reps": 3
+        }
+      ],
+      "copy": [
+        {
+          "kind": "h2d",
+          "bytes": 268435456,
+          "gbs_p50": 66.32,
+          "n_reps": 3
+        },
+        {
+          "kind": "d2h",
+          "bytes": 268435456,
+          "gbs_p50": 66.52,
+          "n_reps": 3
+        },
+        {
+          "kind": "d2d",
+          "bytes": 268435456,
+          "gbs_p50": 136.21,
+          "n_reps": 5
+        }
+      ]
+    },
+    {
+      "provider": "cpu:0",
+      "device": "Apple M5 Pro",
+      "status": "ok",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "gemm": [
+        {
+          "m": 4096,
+          "n": 512,
+          "k": 4096,
+          "dtype": "f16",
+          "tflops_p50": 0.45,
+          "n_reps": 3
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 8192,
+          "dtype": "f16",
+          "tflops_p50": 0.42,
+          "n_reps": 3
+        }
+      ],
+      "copy": [
+        {
+          "kind": "h2d",
+          "bytes": 268435456,
+          "gbs_p50": 63.99,
+          "n_reps": 3
+        },
+        {
+          "kind": "d2h",
+          "bytes": 268435456,
+          "gbs_p50": 65.96,
+          "n_reps": 3
+        },
+        {
+          "kind": "d2d",
+          "bytes": 268435456,
+          "gbs_p50": 151.48,
+          "n_reps": 3
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "provider": "mtl:0",
+      "device": "Apple M5 Pro",
+      "model": "Ministral3-3B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 26,
+        "n_embd": 3072,
+        "n_head": 32,
+        "n_head_kv": 8,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 262144,
+        "n_params": 3429006336,
+        "file_bytes": 2147023008,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 402653184,
+            "bytes": 330301440
+          },
+          "body": {
+            "params": 3026350080,
+            "bytes": 1808302080
+          },
+          "head": {
+            "params": 3072,
+            "bytes": 12288
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 330301440,
+            "context_bytes": 0,
+            "compute_bytes": 21250048
+          },
+          {
+            "name": "MTL0",
+            "model_bytes": 2138615808,
+            "context_bytes": 899678208,
+            "compute_bytes": 274726912
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330301440,
+                "context_bytes": 0,
+                "compute_bytes": 13123584
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2138615808,
+                "context_bytes": 54525952,
+                "compute_bytes": 274726912
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330301440,
+                "context_bytes": 0,
+                "compute_bytes": 14696448
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2138615808,
+                "context_bytes": 218103808,
+                "compute_bytes": 274726912
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330301440,
+                "context_bytes": 0,
+                "compute_bytes": 20987904
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2138615808,
+                "context_bytes": 872415232,
+                "compute_bytes": 274726912
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 471.88
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 485.75
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 255.48
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 260.24
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 523.57
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 542.11
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 561.15
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 579.97
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 599.84
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 618.65
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 638.24
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 333.27
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 338.33
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 679.06
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 699.92
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 721.96
+          },
+          {
+            "context": 7168,
+            "tokens": 512,
+            "ms": 743.48
+          },
+          {
+            "context": 7680,
+            "tokens": 512,
+            "ms": 765.94
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 8192,
+            "tokens": 64,
+            "tps_p50": 81.09,
+            "tps_min": 81.09,
+            "tps_max": 81.09,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 4096,
+            "tokens": 64,
+            "tps_p50": 92.61,
+            "tps_min": 92.61,
+            "tps_max": 92.61,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 99.47,
+            "tps_min": 99.47,
+            "tps_max": 99.47,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 107.69,
+            "tps_min": 107.69,
+            "tps_max": 107.69,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 464.504,
+          "slope_ms_per_1k": 38.4921,
+          "r2": 0.9987,
+          "resid_max_pct": 1.2,
+          "n_points": 14
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 515.72,
+            "full_ms_fitted": 503.92,
+            "penalty_pct": 2.34
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 671.6,
+            "full_ms_fitted": 661.58,
+            "penalty_pct": 1.51
+          }
+        ],
+        "thread_scaling": null,
+        "warmup_ms": 1271.6,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            380.99,
+            380.99
+          ],
+          "model_load_ms": [
+            350.29,
+            350.29
+          ],
+          "context_init_ms": [
+            16.38,
+            16.38
+          ],
+          "warmup_ms": [
+            20.97,
+            20.97
+          ],
+          "ttft_ms": [
+            1499.01,
+            1500.26
+          ],
+          "decode_tps": [
+            100.21,
+            100.21
+          ],
+          "prefill_tps": [
+            1037.44,
+            1038.35
+          ],
+          "completion_ms": [
+            4044.58,
+            4045.6
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            3160.3,
+            3160.3
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            3160.3,
+            3160.3
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            3160.3,
+            3160.3
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "Here\u2019s a concise summary of the document:\n\n### **From Local Time to Global Standard Time**\nThe passage traces the evolution of timekeeping from **local solar time** (based on the sun\u2019s position) to the modern **global standardized time system**, driven by technological and societal changes:\n\n1. **Pre-Industrial Era (Before Railways)**\n   - Time was determined by sundials, with each town keeping its own clock.\n   - Small discrepancies were manageable for slow-moving societies (horses, ships).\n\n2. **The Railway Revolution (19th Century)**\n   - Trains required **precise, synchronized schedules**, but local time differences caused deadly collisions.\n   - Britain standardized on **Greenwich Mean Time (GMT)**, adopted via telegraph signals, becoming national time.\n   - North America followed by dividing the continent into **time zones** (1883), though with inconsistent boundaries.\n\n3. **Global Standardization (1884)**\n   - The **Washington Conference** chose **Greenwich as the prime meridian** (0\u00b0 longitude) and divided Earth into **15\u00b0 zones** (1-hour shifts).\n   - Local times were derived by adding/subtracting hours from GMT, though borders often distorted zones.\n\n4. **Day"
+        ]
+      }
+    },
+    {
+      "provider": "cpu:0",
+      "device": "Apple M5 Pro",
+      "model": "Ministral3-3B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 26,
+        "n_embd": 3072,
+        "n_head": 32,
+        "n_head_kv": 8,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 262144,
+        "n_params": 3429006336,
+        "file_bytes": 2147023008,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 402653184,
+            "bytes": 330301440
+          },
+          "body": {
+            "params": 3026350080,
+            "bytes": 1808302080
+          },
+          "head": {
+            "params": 3072,
+            "bytes": 12288
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 330952704,
+            "context_bytes": 899678208,
+            "compute_bytes": 281020416
+          },
+          {
+            "name": "CPU_REPACK",
+            "model_bytes": 2137964544,
+            "context_bytes": 0,
+            "compute_bytes": 0
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330952704,
+                "context_bytes": 54525952,
+                "compute_bytes": 281020416
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2137964544,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330952704,
+                "context_bytes": 218103808,
+                "compute_bytes": 281020416
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2137964544,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 330952704,
+                "context_bytes": 872415232,
+                "compute_bytes": 281020416
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2137964544,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 2686.52
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 2964.95
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 1628.59
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 1698.49
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 3516.74
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 3777.51
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 4070.08
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 4345.93
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 4581.8
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 4777.53
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 4986.48
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 2728.6
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 2775.62
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 5403.8
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 5667.68
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 5869.85
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 7168,
+            "tokens": 64,
+            "tps_p50": 16.65,
+            "tps_min": 16.65,
+            "tps_max": 16.65,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 4096,
+            "tokens": 64,
+            "tps_p50": 26.63,
+            "tps_min": 26.63,
+            "tps_max": 26.63,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 40.08,
+            "tps_min": 40.08,
+            "tps_max": 40.08,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 60.8,
+            "tps_min": 60.8,
+            "tps_max": 60.8,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 2787.164,
+          "slope_ms_per_1k": 474.7552,
+          "r2": 0.99561,
+          "resid_max_pct": 2.29,
+          "n_points": 12
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 3327.08,
+            "full_ms_fitted": 3273.31,
+            "penalty_pct": 1.64
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 5504.22,
+            "full_ms_fitted": 5217.91,
+            "penalty_pct": 5.49
+          }
+        ],
+        "thread_scaling": {
+          "prefill": {
+            "points": [
+              {
+                "threads": 18,
+                "tokens": 128,
+                "ms": 253.03,
+                "tps": 505.87
+              },
+              {
+                "threads": 6,
+                "tokens": 128,
+                "ms": 605.92,
+                "tps": 211.25
+              },
+              {
+                "threads": 3,
+                "tokens": 128,
+                "ms": 1088.75,
+                "tps": 117.57
+              },
+              {
+                "threads": 1,
+                "tokens": 128,
+                "ms": 3029.14,
+                "tps": 42.26
+              }
+            ],
+            "fit": {
+              "model": "amdahl",
+              "floor_ms": 106.109,
+              "scaled_ms": 2926.544,
+              "r2": 0.9999,
+              "resid_max_pct": 1.26,
+              "n_points": 4
+            }
+          },
+          "decode": {
+            "points": [
+              {
+                "threads": 18,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 62.73
+              },
+              {
+                "threads": 6,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 36.22
+              },
+              {
+                "threads": 3,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 29.96
+              },
+              {
+                "threads": 1,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 11.88
+              }
+            ],
+            "fit": {
+              "model": "saturating",
+              "rate_max_tps": 64.901,
+              "threads_scale": 5.999,
+              "r2": 0.96433,
+              "resid_max_pct": 13.66,
+              "n_points": 4
+            }
+          }
+        },
+        "warmup_ms": 7465.69,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": null,
+          "model_load_ms": [
+            727.25,
+            727.25
+          ],
+          "context_init_ms": [
+            9.25,
+            9.25
+          ],
+          "warmup_ms": [
+            32.65,
+            32.65
+          ],
+          "ttft_ms": [
+            8524.18,
+            8650.97
+          ],
+          "decode_tps": [
+            44.51,
+            44.64
+          ],
+          "prefill_tps": [
+            182.46,
+            185.18
+          ],
+          "completion_ms": [
+            14275.87,
+            14418.64
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            3219.2,
+            3219.2
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            3219.2,
+            3219.2
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            3219.0,
+            3219.0
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "Here\u2019s a concise summary of the document:\n\n### **From Local Time to Global Standard Time**\nThe passage traces the evolution of timekeeping from **local solar time** (based on the sun\u2019s position) to the modern **global standardized time system**, driven by technological and societal changes:\n\n1. **Pre-Industrial Era (Before Railways)**\n   - Time was determined by sundials, with each town keeping its own local time.\n   - Small discrepancies were manageable for slow-moving societies (horses, ships).\n\n2. **The Railway Revolution (19th Century)**\n   - Trains required **precise schedules**, but local time differences caused deadly collisions.\n   - Britain standardized on **Greenwich Mean Time (GMT)**, adopted by the railways via telegraph signals.\n   - North America followed, dividing the continent into **time zones** (1883) to simplify travel.\n\n3. **Global Standardization (1884)**\n   - The **Washington Conference** chose **Greenwich as the prime meridian** (0\u00b0 longitude) and divided Earth into **15\u00b0 zones** (1-hour shifts).\n   - Time zones followed **administrative borders**, not pure longitude, creating irregular shapes.\n\n4. **Daylight Saving Time ("
+        ]
+      }
+    },
+    {
+      "provider": "mtl:0",
+      "device": "Apple M5 Pro",
+      "model": "Qwen3.5-4B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 32,
+        "n_embd": 2560,
+        "n_head": 16,
+        "n_head_kv": 4,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 262144,
+        "n_params": 4205751296,
+        "file_bytes": 2740937888,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 635699200,
+            "bytes": 521472000
+          },
+          "body": {
+            "params": 3570049536,
+            "bytes": 2208487424
+          },
+          "head": {
+            "params": 2560,
+            "bytes": 10240
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 521472000,
+            "context_bytes": 0,
+            "compute_bytes": 19157024
+          },
+          {
+            "name": "MTL0",
+            "model_bytes": 2729969664,
+            "context_bytes": 329515008,
+            "compute_bytes": 519045120
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 521472000,
+                "context_bytes": 0,
+                "compute_bytes": 11030560
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2729969664,
+                "context_bytes": 69468160,
+                "compute_bytes": 519587872
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 521472000,
+                "context_bytes": 0,
+                "compute_bytes": 12603424
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2729969664,
+                "context_bytes": 119799808,
+                "compute_bytes": 521160736
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 521472000,
+                "context_bytes": 0,
+                "compute_bytes": 18894880
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 2729969664,
+                "context_bytes": 321126400,
+                "compute_bytes": 519045120
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 619.38
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 615.03
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 312.84
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 315.0
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 627.36
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 633.47
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 641.3
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 648.28
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 654.19
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 660.21
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 667.29
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 339.84
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 341.31
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 680.08
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 686.39
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 693.0
+          },
+          {
+            "context": 7168,
+            "tokens": 512,
+            "ms": 700.73
+          },
+          {
+            "context": 7680,
+            "tokens": 512,
+            "ms": 706.81
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 8192,
+            "tokens": 64,
+            "tps_p50": 67.59,
+            "tps_min": 67.59,
+            "tps_max": 67.59,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 73.58,
+            "tps_min": 73.58,
+            "tps_max": 73.58,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 611.072,
+          "slope_ms_per_1k": 12.2706,
+          "r2": 0.99192,
+          "resid_max_pct": 1.26,
+          "n_points": 14
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 627.84,
+            "full_ms_fitted": 623.64,
+            "penalty_pct": 0.67
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 681.15,
+            "full_ms_fitted": 673.9,
+            "penalty_pct": 1.08
+          }
+        ],
+        "thread_scaling": null,
+        "warmup_ms": 1667.99,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            544.69,
+            544.69
+          ],
+          "model_load_ms": [
+            518.98,
+            518.98
+          ],
+          "context_init_ms": [
+            18.79,
+            18.79
+          ],
+          "warmup_ms": [
+            38.58,
+            38.58
+          ],
+          "ttft_ms": [
+            1927.13,
+            1927.32
+          ],
+          "decode_tps": [
+            71.65,
+            71.99
+          ],
+          "prefill_tps": [
+            818.38,
+            818.46
+          ],
+          "completion_ms": [
+            5486.74,
+            5503.71
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            4078.0,
+            4078.0
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            4078.1,
+            4078.1
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            4077.9,
+            4077.9
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "This document traces the historical evolution of timekeeping from a local, solar-based system to a global, standardized framework driven by the need for coordination in a modern world.\n\n**Key Points:**\n\n*   **From Local Solar Time:** Historically, time was determined by the position of the sun, meaning different locations had different \"noon\" times. This system worked for slow-moving societies but became incompatible with the speed of railways and long-distance travel.\n*   **The Railway Revolution:** In the 19th century, railways necessitated a single standard time to prevent deadly collisions. Britain adopted Greenwich Mean Time (GMT), and North America established time zones to manage its vast continental span.\n*   **Technological Solutions:** The distribution of accurate time relied on innovations like the time ball and, more significantly, the electric telegraph, which allowed observatories to synchronize clocks across nations.\n*   **Global Standardization:** An 1884 international conference established the Prime Meridian at Greenwich as the reference point (0\u00b0 longitude) and defined the world into 24 time zones, each 15 degrees wide.\n*   **Complexities and Adjustments:** Adoption was uneven, with national borders often cutting through time zones. Additionally, Daylight"
+        ]
+      }
+    },
+    {
+      "provider": "cpu:0",
+      "device": "Apple M5 Pro",
+      "model": "Qwen3.5-4B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 32,
+        "n_embd": 2560,
+        "n_head": 16,
+        "n_head_kv": 4,
+        "n_swa": 0,
+        "shared_kv_layers": 0,
+        "n_ctx_train": 262144,
+        "n_params": 4205751296,
+        "file_bytes": 2740937888,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "recurrent",
+            "window": 0
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 635699200,
+            "bytes": 521472000
+          },
+          "body": {
+            "params": 3570049536,
+            "bytes": 2208487424
+          },
+          "head": {
+            "params": 2560,
+            "bytes": 10240
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 525318144,
+            "context_bytes": 329515008,
+            "compute_bytes": 527716384
+          },
+          {
+            "name": "CPU_REPACK",
+            "model_bytes": 2726123520,
+            "context_bytes": 0,
+            "compute_bytes": 0
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 525318144,
+                "context_bytes": 69468160,
+                "compute_bytes": 524832800
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2726123520,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 525318144,
+                "context_bytes": 119799808,
+                "compute_bytes": 526405664
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2726123520,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 525318144,
+                "context_bytes": 321126400,
+                "compute_bytes": 527454240
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 2726123520,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 3603.88
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 3679.6
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 1873.79
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 1900.0
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 3827.11
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 3901.19
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 3986.08
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 4045.17
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 4132.28
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 4197.5
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 4254.34
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 2209.44
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 2241.66
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 4402.52
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 4452.04
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 4545.12
+          },
+          {
+            "context": 7168,
+            "tokens": 512,
+            "ms": 4631.78
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 7680,
+            "tokens": 64,
+            "tps_p50": 25.89,
+            "tps_min": 25.89,
+            "tps_max": 25.89,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 41.78,
+            "tps_min": 41.78,
+            "tps_max": 41.78,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 3612.784,
+          "slope_ms_per_1k": 140.5497,
+          "r2": 0.99891,
+          "resid_max_pct": 0.59,
+          "n_points": 13
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 3773.79,
+            "full_ms_fitted": 3756.71,
+            "penalty_pct": 0.45
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 4451.1,
+            "full_ms_fitted": 4332.4,
+            "penalty_pct": 2.74
+          }
+        ],
+        "thread_scaling": {
+          "prefill": {
+            "points": [
+              {
+                "threads": 18,
+                "tokens": 128,
+                "ms": 471.97,
+                "tps": 271.2
+              },
+              {
+                "threads": 6,
+                "tokens": 128,
+                "ms": 959.52,
+                "tps": 133.4
+              },
+              {
+                "threads": 3,
+                "tokens": 128,
+                "ms": 1511.78,
+                "tps": 84.67
+              },
+              {
+                "threads": 1,
+                "tokens": 128,
+                "ms": 4089.21,
+                "tps": 31.3
+              }
+            ],
+            "fit": {
+              "model": "amdahl",
+              "floor_ms": 277.675,
+              "scaled_ms": 3806.858,
+              "r2": 0.99952,
+              "resid_max_pct": 2.69,
+              "n_points": 4
+            }
+          },
+          "decode": {
+            "points": [],
+            "fit": null
+          }
+        },
+        "warmup_ms": 9303.23,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": null,
+          "model_load_ms": [
+            995.39,
+            995.39
+          ],
+          "context_init_ms": [
+            8.77,
+            8.77
+          ],
+          "warmup_ms": [
+            48.93,
+            48.93
+          ],
+          "ttft_ms": [
+            10937.52,
+            11123.28
+          ],
+          "decode_tps": [
+            39.25,
+            39.27
+          ],
+          "prefill_tps": [
+            144.23,
+            146.68
+          ],
+          "completion_ms": [
+            17460.17,
+            17641.7
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            4132.1,
+            4132.1
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            4132.1,
+            4132.1
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            4132.0,
+            4132.0
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "This document traces the historical evolution of timekeeping from a local, solar-based system to a global, standardized framework driven by the need for coordination in an increasingly connected world.\n\n**Key Points:**\n\n*   **From Local Solar Time:** Historically, time was determined by the position of the sun, meaning different locations had different \"noon\" times. This system worked for slow-moving societies but became dangerous with the advent of railways, where trains traveling at high speeds required synchronized schedules to avoid collisions.\n*   **The Railway Revolution:** In the 19th century, railways imposed a single standard time. Britain adopted Greenwich Mean Time (GMT), while North America divided the continent into broad time zones to manage its vast geography. This shift was driven by the railway industry rather than governments.\n*   **Technology of Distribution:** Accurate time was distributed via telegraph wires and time balls, allowing observatories to act as central timekeepers for railways, post offices, and the public.\n*   **Global Standardization (1884):** An international conference in Washington established a single prime meridian (Greenwich) as the reference point for zero longitude. The Earth was divided into 24 time zones, each 15 degrees wide, with a universal"
+        ]
+      }
+    },
+    {
+      "provider": "mtl:0",
+      "device": "Apple M5 Pro",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 35,
+        "n_embd": 1536,
+        "n_head": 8,
+        "n_head_kv": 1,
+        "n_swa": 512,
+        "shared_kv_layers": 20,
+        "n_ctx_train": 131072,
+        "n_params": 4647450147,
+        "file_bytes": 3106738272,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 2751463424,
+            "bytes": 1841299456
+          },
+          "body": {
+            "params": 1895985187,
+            "bytes": 1249611916
+          },
+          "head": {
+            "params": 1536,
+            "bytes": 6144
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 1841299456,
+            "context_bytes": 0,
+            "compute_bytes": 41967616
+          },
+          {
+            "name": "MTL0",
+            "model_bytes": 1476111456,
+            "context_bytes": 155713536,
+            "compute_bytes": 543162368
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1841299456,
+                "context_bytes": 0,
+                "compute_bytes": 25714688
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 1476111456,
+                "context_bytes": 9437184,
+                "compute_bytes": 543162368
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1841299456,
+                "context_bytes": 0,
+                "compute_bytes": 28860416
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 1476111456,
+                "context_bytes": 37748736,
+                "compute_bytes": 543162368
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1841299456,
+                "context_bytes": 0,
+                "compute_bytes": 41443328
+              },
+              {
+                "name": "MTL0",
+                "model_bytes": 1476111456,
+                "context_bytes": 150994944,
+                "compute_bytes": 543162368
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 320.31
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 329.71
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 168.46
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 171.03
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 340.08
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 347.57
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 353.67
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 359.18
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 364.27
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 372.17
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 378.4
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 194.29
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 194.68
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 390.47
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 397.86
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 401.9
+          },
+          {
+            "context": 7168,
+            "tokens": 512,
+            "ms": 411.25
+          },
+          {
+            "context": 7680,
+            "tokens": 512,
+            "ms": 415.13
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 8192,
+            "tokens": 64,
+            "tps_p50": 108.75,
+            "tps_min": 108.75,
+            "tps_max": 108.75,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 4096,
+            "tokens": 64,
+            "tps_p50": 116.16,
+            "tps_min": 116.16,
+            "tps_max": 116.16,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 119.56,
+            "tps_min": 119.56,
+            "tps_max": 119.56,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 123.37,
+            "tps_min": 123.37,
+            "tps_max": 123.37,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 321.746,
+          "slope_ms_per_1k": 12.2528,
+          "r2": 0.99882,
+          "resid_max_pct": 0.46,
+          "n_points": 14
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 339.49,
+            "full_ms_fitted": 334.29,
+            "penalty_pct": 1.55
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 388.97,
+            "full_ms_fitted": 384.48,
+            "penalty_pct": 1.17
+          }
+        ],
+        "thread_scaling": null,
+        "warmup_ms": 904.62,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": [
+            663.35,
+            663.35
+          ],
+          "model_load_ms": [
+            538.18,
+            538.18
+          ],
+          "context_init_ms": [
+            16.87,
+            16.87
+          ],
+          "warmup_ms": [
+            27.35,
+            27.35
+          ],
+          "ttft_ms": [
+            1011.7,
+            1012.97
+          ],
+          "decode_tps": [
+            120.36,
+            120.59
+          ],
+          "prefill_tps": [
+            1537.23,
+            1539.16
+          ],
+          "completion_ms": [
+            3131.06,
+            3136.22
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            3824.4,
+            3824.4
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            3824.4,
+            3824.4
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            3824.4,
+            3824.4
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "This document traces the evolution of timekeeping, moving from a strictly local solar system to the modern, coordinated global standard.\n\n**Early Local Time:** For most of human history, time was strictly local, based on the position of the Sun (sundials). Since the Sun's highest point varied by location, every town effectively kept its own clock, leading to minor discrepancies between neighboring areas.\n\n**The Breakdown and the Railway:** This local system began to fail in the 19th century with the advent of the railway. Trains required precise, common schedules, making local solar time unusable for timetables.\n\n**Standardization in Britain and North America:**\n*   **Britain** adopted a single standard based on the time at the Royal Observatory in Greenwich.\n*   **North America** faced a more complex situation, eventually agreeing to divide the continent into broad time zones, spaced roughly an hour apart, to manage the vast geographical differences in solar time.\n\n**Technological Solutions:**\n*   Before the telegraph, time was synchronized using physical devices like the **time ball**.\n*   The **electric telegraph** revolutionized this by allowing a single master clock at an observatory to send precise signals globally, enabling cities to correct their clocks from an authoritative source."
+        ]
+      }
+    },
+    {
+      "provider": "cpu:0",
+      "device": "Apple M5 Pro",
+      "model": "gemma4-E2B",
+      "quant": "q4",
+      "healthy": true,
+      "vram_method": "unified",
+      "threads": {
+        "decode": 6,
+        "batch": 6
+      },
+      "geometry": {
+        "n_layer": 35,
+        "n_embd": 1536,
+        "n_head": 8,
+        "n_head_kv": 1,
+        "n_swa": 512,
+        "shared_kv_layers": 20,
+        "n_ctx_train": 131072,
+        "n_params": 4647450147,
+        "file_bytes": 3106738272,
+        "context": {
+          "n_ctx": 8320,
+          "n_batch": 8320,
+          "n_ubatch": 512
+        },
+        "layers": [
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "swa",
+            "window": 512
+          },
+          {
+            "kind": "full",
+            "window": 0
+          }
+        ],
+        "tensors": {
+          "embedding": {
+            "params": 2751463424,
+            "bytes": 1841299456
+          },
+          "body": {
+            "params": 1895985187,
+            "bytes": 1249611916
+          },
+          "head": {
+            "params": 1536,
+            "bytes": 6144
+          },
+          "tied_head": true
+        },
+        "buffers": [
+          {
+            "name": "CPU",
+            "model_bytes": 1980095584,
+            "context_bytes": 155713536,
+            "compute_bytes": 546310144
+          },
+          {
+            "name": "CPU_REPACK",
+            "model_bytes": 1337315328,
+            "context_bytes": 0,
+            "compute_bytes": 0
+          }
+        ],
+        "memory_points": [
+          {
+            "n_ctx": 512,
+            "n_batch": 512,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1980095584,
+                "context_bytes": 9437184,
+                "compute_bytes": 547381248
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 1337315328,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 2048,
+            "n_batch": 2048,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1980095584,
+                "context_bytes": 37748736,
+                "compute_bytes": 608722944
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 1337315328,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          },
+          {
+            "n_ctx": 8192,
+            "n_batch": 8192,
+            "n_ubatch": 512,
+            "buffers": [
+              {
+                "name": "CPU",
+                "model_bytes": 1980095584,
+                "context_bytes": 150994944,
+                "compute_bytes": 546310144
+              },
+              {
+                "name": "CPU_REPACK",
+                "model_bytes": 1337315328,
+                "context_bytes": 0,
+                "compute_bytes": 0
+              }
+            ]
+          }
+        ]
+      },
+      "sweep": {
+        "status": "ok",
+        "prefill": [
+          {
+            "context": 0,
+            "tokens": 512,
+            "ms": 2439.88
+          },
+          {
+            "context": 512,
+            "tokens": 512,
+            "ms": 2626.29
+          },
+          {
+            "context": 1024,
+            "tokens": 256,
+            "ms": 1415.3
+          },
+          {
+            "context": 1280,
+            "tokens": 256,
+            "ms": 1432.7
+          },
+          {
+            "context": 1536,
+            "tokens": 512,
+            "ms": 2798.54
+          },
+          {
+            "context": 2048,
+            "tokens": 512,
+            "ms": 2884.73
+          },
+          {
+            "context": 2560,
+            "tokens": 512,
+            "ms": 2957.8
+          },
+          {
+            "context": 3072,
+            "tokens": 512,
+            "ms": 3039.54
+          },
+          {
+            "context": 3584,
+            "tokens": 512,
+            "ms": 3118.73
+          },
+          {
+            "context": 4096,
+            "tokens": 512,
+            "ms": 3207.05
+          },
+          {
+            "context": 4608,
+            "tokens": 512,
+            "ms": 3279.73
+          },
+          {
+            "context": 5120,
+            "tokens": 256,
+            "ms": 1852.32
+          },
+          {
+            "context": 5376,
+            "tokens": 256,
+            "ms": 1883.25
+          },
+          {
+            "context": 5632,
+            "tokens": 512,
+            "ms": 3426.52
+          },
+          {
+            "context": 6144,
+            "tokens": 512,
+            "ms": 3508.7
+          },
+          {
+            "context": 6656,
+            "tokens": 512,
+            "ms": 3615.2
+          },
+          {
+            "context": 7168,
+            "tokens": 512,
+            "ms": 3683.54
+          },
+          {
+            "context": 7680,
+            "tokens": 512,
+            "ms": 3765.07
+          }
+        ],
+        "decode": [
+          {
+            "kv_fill": 8192,
+            "tokens": 64,
+            "tps_p50": 49.83,
+            "tps_min": 49.83,
+            "tps_max": 49.83,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 4096,
+            "tokens": 64,
+            "tps_p50": 56.31,
+            "tps_min": 56.31,
+            "tps_max": 56.31,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 2048,
+            "tokens": 64,
+            "tps_p50": 61.94,
+            "tps_min": 61.94,
+            "tps_max": 61.94,
+            "n_reps": 1
+          },
+          {
+            "kv_fill": 0,
+            "tokens": 64,
+            "tps_p50": 72.22,
+            "tps_min": 72.22,
+            "tps_max": 72.22,
+            "n_reps": 1
+          }
+        ],
+        "fit": {
+          "width": 512,
+          "intercept_ms": 2523.703,
+          "slope_ms_per_1k": 163.1127,
+          "r2": 0.99512,
+          "resid_max_pct": 2.65,
+          "n_points": 14
+        },
+        "ubatch": [
+          {
+            "context": 1024,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 2848.0,
+            "full_ms_fitted": 2690.73,
+            "penalty_pct": 5.84
+          },
+          {
+            "context": 5120,
+            "width": 256,
+            "n_parts": 2,
+            "parts_ms": 3735.57,
+            "full_ms_fitted": 3358.84,
+            "penalty_pct": 11.22
+          }
+        ],
+        "thread_scaling": {
+          "prefill": {
+            "points": [
+              {
+                "threads": 18,
+                "tokens": 128,
+                "ms": 269.35,
+                "tps": 475.22
+              },
+              {
+                "threads": 6,
+                "tokens": 128,
+                "ms": 590.09,
+                "tps": 216.92
+              },
+              {
+                "threads": 3,
+                "tokens": 128,
+                "ms": 1100.44,
+                "tps": 116.32
+              },
+              {
+                "threads": 1,
+                "tokens": 128,
+                "ms": 2998.02,
+                "tps": 42.69
+              }
+            ],
+            "fit": {
+              "model": "amdahl",
+              "floor_ms": 117.008,
+              "scaled_ms": 2886.343,
+              "r2": 0.99986,
+              "resid_max_pct": 1.72,
+              "n_points": 4
+            }
+          },
+          "decode": {
+            "points": [
+              {
+                "threads": 18,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 81.18
+              },
+              {
+                "threads": 6,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 61.07
+              },
+              {
+                "threads": 3,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 45.01
+              },
+              {
+                "threads": 1,
+                "kv_fill": 2048,
+                "tokens": 16,
+                "tps": 20.41
+              }
+            ],
+            "fit": {
+              "model": "saturating",
+              "rate_max_tps": 80.925,
+              "threads_scale": 3.8622,
+              "r2": 0.99291,
+              "resid_max_pct": 5.28,
+              "n_points": 4
+            }
+          }
+        },
+        "warmup_ms": 6616.82,
+        "shader_bytes": 0,
+        "shader_cache": "unavailable"
+      },
+      "job": {
+        "status": "ok",
+        "task": "summarize-large",
+        "metrics": {
+          "cold_start_ms": null,
+          "model_load_ms": [
+            754.51,
+            754.51
+          ],
+          "context_init_ms": [
+            3.64,
+            3.64
+          ],
+          "warmup_ms": [
+            27.24,
+            27.24
+          ],
+          "ttft_ms": [
+            7750.29,
+            7793.17
+          ],
+          "decode_tps": [
+            63.38,
+            63.55
+          ],
+          "prefill_tps": [
+            200.65,
+            201.76
+          ],
+          "completion_ms": [
+            11789.95,
+            11843.89
+          ]
+        },
+        "memory": {
+          "prefill_rss_peak_mb": [
+            3882.7,
+            3882.7
+          ],
+          "prefill_vram_peak_mb": null,
+          "decode_rss_peak_mb": [
+            3882.7,
+            3882.7
+          ],
+          "decode_vram_peak_mb": null,
+          "decode_rss_sustained_mb": [
+            3882.7,
+            3882.7
+          ],
+          "decode_vram_sustained_mb": null
+        },
+        "sample_completions": [
+          "This document traces the evolution of how humanity has measured and coordinated time, moving from local solar time to the modern system of standardized civil time.\n\n**Early Local Time:** For most of human history, time was strictly local, based on the position of the Sun (sundials). Since the Sun's highest point varied by location, every town effectively kept its own clock, leading to minor discrepancies between neighboring areas.\n\n**The Breakdown and Standardization:** This local system began to fail in the nineteenth century with the advent of the railway. Trains required precise, common schedules, making local solar time unusable for timetables.\n\n*   **In Britain:** A single standard was adopted, based on the time at the Royal Observatory in Greenwich, establishing Greenwich Mean Time (GMT) as the civil time for the entire rail network.\n*   **In North America:** Railways agreed to divide the continent into broad time zones, spaced roughly an hour apart, to manage the vast geographical differences in solar time.\n\n**Technological Coordination:** Accurate time distribution was solved through ingenious methods:\n\n*   **Time Balls:** Early port cities used physical spheres hoisted to check chronometers.\n*   **Electric Telegraph:** This allowed a single master clock at an observatory to send precise signals across wires"
+        ]
+      }
+    }
+  ]
+}
