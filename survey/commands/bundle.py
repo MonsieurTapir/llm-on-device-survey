@@ -30,8 +30,13 @@ from .._log import log
 from ..config import PROJECT_URL
 from .publish import _render_readme
 
-_PAREN_NOISE = re.compile(r"\((?:R|TM)\)", re.IGNORECASE)
-_CPU_NOISE = re.compile(r"\b(AMD|Intel|Processor|CPU)\b|\b\d+-Core\b|@.*$|\bw/.*$", re.IGNORECASE)
+# Parentheticals are branding or driver noise: (R), (TM), (RADV NAVI33), (MTL).
+_PAREN_NOISE = re.compile(r"\([^)]*\)")
+# "Ryzen" is the brand, "Threadripper" the line — like GeForce before RTX, say it once.
+_CPU_NOISE = re.compile(
+    r"\b(AMD|Intel|Processor|CPU)\b|\bRyzen(?=\s+Threadripper)\b|\b\d+-Cores?\b|@.*$|\bw/.*$",
+    re.IGNORECASE,
+)
 _GPU_NOISE = re.compile(r"\b(NVIDIA|GeForce|AMD|Intel|Graphics)\b", re.IGNORECASE)
 
 
@@ -55,7 +60,8 @@ def submission_name(machine: dict, devices: list[str] | None = None) -> str:
     e.g. "ryzen-9-9950x-rtx-5080". `devices` are backend-reported GPU labels
     (see `gpu_devices`), used when the machine block names no GPU itself. A
     cleaned label that comes out empty falls back to the raw slug rather than
-    vanishing."""
+    vanishing, and a label over the 64-char ingest limit drops trailing parts
+    until it fits — a derived name always validates."""
     cpu_raw = machine.get("cpu") or ""
     cpu = _slug(_CPU_NOISE.sub(" ", _PAREN_NOISE.sub(" ", cpu_raw))) or _slug(cpu_raw)
     gpu_raw = (machine.get("gpus") or devices or [""])[0]
@@ -67,7 +73,10 @@ def submission_name(machine: dict, devices: list[str] | None = None) -> str:
         # Graphics"), or Apple Silicon, where CPU and GPU are the one string.
         # Say the machine once. Same two tests the analysis calls integrated.
         gpu = ""
-    return "-".join(part for part in (cpu, gpu) if part) or "unknown-machine"
+    label = "-".join(part for part in (cpu, gpu) if part) or "unknown-machine"
+    while len(label) > 64 and "-" in label:
+        label = label.rsplit("-", 1)[0]
+    return label[:64]
 
 
 def _add_bytes(tar: tarfile.TarFile, arcname: str, data: bytes) -> None:

@@ -12,6 +12,7 @@ import argparse
 import gzip
 import io
 import json
+import re
 import tarfile
 from pathlib import Path
 
@@ -98,6 +99,22 @@ def test_submission_name_drops_vendor_noise():
     )
     assert submission_name({"cpu": "Apple M5 Pro", "gpus": ["Apple M5 Pro"]}) == "apple-m5-pro"
     assert submission_name({"cpu": "", "gpus": []}) == "unknown-machine"
+    # Core counts pluralize, RADV appends its chip codename, and Threadripper
+    # restates the Ryzen brand — all noise, and together they broke the 64-char
+    # ingest limit on a real machine.
+    assert (
+        submission_name(
+            {"cpu": "AMD Ryzen Threadripper PRO 7975WX 32-Cores", "gpus": []},
+            ["AMD Radeon PRO W7600 (RADV NAVI33)"],
+        )
+        == "threadripper-pro-7975wx-radeon-pro-w7600"
+    )
+
+
+def test_submission_name_never_exceeds_the_ingest_limit():
+    name = submission_name({"cpu": " ".join(["part"] * 30), "gpus": []})
+    assert name == "-".join(["part"] * 13)  # 13 parts is exactly 64 chars
+    assert re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name)
 
 
 def test_submission_name_falls_back_to_the_backends_gpu():
