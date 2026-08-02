@@ -1,8 +1,9 @@
 # One-command benchmark (Windows x64): pull the latest release kit from GitHub
-# (checksum-verified), unpack it into the llm-on-device-survey\ folder next to
-# this script, and hand off to the kit's own run.ps1. Kits are versioned
-# subfolders of llm-on-device-survey\ and share its models\ cache, so a new
-# release skips the model download. Double-click run.bat, or standalone
+# (checksum-verified), unpack it into an llm-on-device-survey\ folder under
+# the current directory (in place when the current directory already is one),
+# and hand off to the kit's own run.ps1. Kits are versioned subfolders of
+# llm-on-device-survey\ and share its models\ cache, so a new release skips
+# the model download. Double-click run.bat, or standalone
 # without a clone:
 #   irm https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1 | iex
 # Safe to re-run: an already-unpacked kit is reused, and the kit itself resumes.
@@ -24,8 +25,13 @@ if (-not $tag) { Fail "cannot resolve the latest release - check your network co
 
 # Must match packaging/package.sh's naming: the release URL is built from
 # ARTIFACT, and the archive unpacks to llm-on-device-survey\<tag>-<target>\.
+# When the current folder already IS llm-on-device-survey\ (a re-run from
+# inside a previous download, or a repo checkout), unpack in place instead of
+# nesting a second folder - and a second ~8 GB models cache - inside the first.
 $asset = "llm-on-device-survey-$($tag -replace '^v', '')-windows-x64"
-$kit = "llm-on-device-survey\$tag-windows-x64"
+$root = "llm-on-device-survey"
+if ((Split-Path -Leaf (Get-Location)) -eq $root) { $root = "." }
+$kit = Join-Path $root "$tag-windows-x64"
 if (-not (Test-Path $kit)) {
   $base = "https://github.com/$repo/releases/download/$tag"
   Say "downloading $asset.zip"
@@ -38,8 +44,16 @@ if (-not (Test-Path $kit)) {
   $actual = (Get-FileHash "$asset.zip" -Algorithm SHA256).Hash
   # -ne on strings is case-insensitive: sha256sum writes lowercase, Get-FileHash upper.
   if ($actual -ne $expected) { Fail "checksum mismatch (partial download?) - delete $asset.zip and re-run" }
-  # -Force: llm-on-device-survey\ already exists when an older kit shares it.
-  Expand-Archive -Path "$asset.zip" -DestinationPath . -Force
+  if ($root -eq ".") {
+    # Expand-Archive cannot strip the archive's llm-on-device-survey\ prefix;
+    # extract to a scratch dir and move the kit up.
+    Expand-Archive -Path "$asset.zip" -DestinationPath ".kit-extract" -Force
+    Move-Item (Join-Path ".kit-extract\llm-on-device-survey" "$tag-windows-x64") $kit
+    Remove-Item ".kit-extract" -Recurse
+  } else {
+    # -Force: llm-on-device-survey\ already exists when an older kit shares it.
+    Expand-Archive -Path "$asset.zip" -DestinationPath . -Force
+  }
   # Clear mark-of-the-web the zip download stamped on the extracted files.
   Get-ChildItem -Path $kit -Recurse -File | Unblock-File
   Remove-Item "$asset.zip", "$asset.zip.sha256"

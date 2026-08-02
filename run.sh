@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # One-command benchmark (Linux x64 / Apple Silicon): detect the platform, pull
-# the latest release kit from GitHub (checksum-verified), unpack it into the
-# llm-on-device-survey/ folder next to this script, and hand off to the kit's
-# own run.sh. Kits are versioned subfolders of llm-on-device-survey/ and share
-# its models/ cache, so a new release skips the model download. Needs curl or
-# wget, plus tar + gzip.
+# the latest release kit from GitHub (checksum-verified), unpack it into an
+# llm-on-device-survey/ folder under the current directory (in place when the
+# current directory already is one), and hand off to the kit's own run.sh.
+# Kits are versioned subfolders of llm-on-device-survey/ and share its models/
+# cache, so a new release skips the model download. Needs curl or wget, plus
+# tar + gzip.
 #
 # Works standalone — no clone required:
 #   curl -fsSL https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.sh | bash
@@ -38,8 +39,13 @@ TAG=$(http "https://api.github.com/repos/$REPO_SLUG/releases/latest" |
 
 # Must match packaging/package.sh's naming: the release URL is built from
 # ARTIFACT, and the archive unpacks to llm-on-device-survey/<tag>-<target>/.
+# When the current folder already IS llm-on-device-survey/ (a re-run from
+# inside a previous download, or a repo checkout), unpack in place instead of
+# nesting a second folder — and a second ~8 GB models cache — inside the first.
 ASSET="llm-on-device-survey-${TAG#v}-$TARGET"
-KIT="llm-on-device-survey/$TAG-$TARGET"
+ROOT="llm-on-device-survey"
+[ "$(basename "$PWD")" = "$ROOT" ] && ROOT="."
+KIT="$ROOT/$TAG-$TARGET"
 if [ ! -d "$KIT" ]; then
   BASE="https://github.com/$REPO_SLUG/releases/download/$TAG"
   say "downloading $ASSET.tar.gz"
@@ -48,7 +54,11 @@ if [ ! -d "$KIT" ]; then
   { command -v sha256sum >/dev/null && sha256sum -c "$ASSET.tar.gz.sha256" ||
     shasum -a 256 -c "$ASSET.tar.gz.sha256"; } >/dev/null ||
     fail "checksum mismatch (partial download?) — delete $ASSET.tar.gz and re-run"
-  tar -xzf "$ASSET.tar.gz"
+  if [ "$ROOT" = "." ]; then
+    tar -xzf "$ASSET.tar.gz" --strip-components=1
+  else
+    tar -xzf "$ASSET.tar.gz"
+  fi
   rm -f "$ASSET.tar.gz" "$ASSET.tar.gz.sha256"
 fi
 
