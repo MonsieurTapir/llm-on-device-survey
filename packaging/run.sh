@@ -49,9 +49,11 @@ echo "   If a GPU you expected is missing above: on headless Linux boxes your"
 echo "   user usually needs the 'render' group (sudo usermod -aG render \$USER,"
 echo "   then log out and back in) for the GPU to be visible."
 
-say "Running the benchmark (about 15 min on fast machines, up to an hour on slow ones; keep it plugged in and idle)"
+say "Running the benchmark (about 15 min on fast machines, up to an hour on slow ones; keep it plugged in and idle — if interrupted, a re-run resumes)"
 "$UV" run survey run --backend llamacpp --models "$MODELS" --out results/local ||
-  fail "the benchmark run failed — please open an issue with the output above."
+  fail "the benchmark run failed — re-running ./run.sh resumes from the last
+   finished step. If it fails the same way again, please open an issue with
+   the output above."
 
 say "Packing your submission"
 "$UV" run survey bundle results/local --out . ||

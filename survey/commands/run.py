@@ -6,6 +6,12 @@ exe measures nothing synthetic on an unhealthy provider), then — for healthy
 cells — S job spawns of the single validation task. Persists the raw traces,
 then aggregates them through the same `aggregate.build` that `survey aggregate`
 uses.
+
+Every finished cell is checkpointed to `<backend>-checkpoint.json.gz` in
+`--out`: an interrupted run resumes on the next invocation, skipping the cells
+already measured, and a completed run deletes the file. A checkpoint from a
+different experiment (machine identity, job shape, backend stack) refuses to
+resume; `--fresh` discards it.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import subprocess
 import tempfile
 from pathlib import Path
 from statistics import median
@@ -22,6 +29,7 @@ from .._log import log, working
 from ..tasks import Task
 from ..tasks import load as load_tasks
 from .aggregate import RAW_SCHEMA_VERSION
+from .merge import MACHINE_IDENTITY
 
 # Below ~4 tok/s a stack is slower than a person reads — effectively unusable.
 UNUSABLE_TPS = 4
@@ -128,6 +136,70 @@ def _job(backend, v, ep, task: Task, *, spawns, iters, deadline_ms, backstop_s, 
     return status, sp
 
 
+def _versions_of(raw: dict) -> dict | None:
+    """The stack identity from the first events object in a raw/checkpoint doc,
+    minus the run-shaped `threads` block — None when nothing carried events."""
+    traces = [p.get("trace") for p in raw.get("probes", [])]
+    for cell in raw.get("cells", []):
+        traces.append((cell.get("sweep") or {}).get("trace"))
+        traces += (cell.get("job") or {}).get("spawns", [])
+    for t in traces:
+        if t and t.get("events"):
+            return {k: v for k, v in t["events"]["versions"].items() if k != "threads"}
+    return None
+
+
+def _exe_versions(cmd: list[str]) -> dict | None:
+    """The live exe's `version` verb — the same identity object the events
+    embed — minus `threads`, which depends on the invocation, not the stack."""
+    out = subprocess.run([*cmd, "version"], capture_output=True, text=True, errors="replace")
+    try:
+        ver = json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return None  # `survey check` polices this verb; don't also die here
+    return {k: v for k, v in ver.items() if k != "threads"}
+
+
+def _read_checkpoint(path: Path, expect: dict, exe_versions) -> dict | None:
+    """An interrupted run's persisted state, or None. A checkpoint that measured
+    a different experiment — machine identity, job shape, backend stack —
+    refuses to resume rather than mix conditions (same bar as `survey merge`)."""
+    if not path.exists():
+        return None
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            ckpt = json.load(fh)
+    except (OSError, EOFError, json.JSONDecodeError) as err:
+        log(f"checkpoint {path.name} is unreadable ({err}) — starting fresh")
+        return None
+
+    def check(field: str, old, new) -> None:
+        if old != new:
+            raise SystemExit(
+                f"refusing to resume from {path.name}: {field} differs\n"
+                f"  checkpoint: {old!r}\n  this run:   {new!r}\n"
+                f"re-run with --fresh to discard the checkpoint"
+            )
+
+    for field in ("schema_version", "backend", "sampling", "job_spawns", "job_iters"):
+        check(field, ckpt.get(field), expect[field])
+    for field in MACHINE_IDENTITY:
+        check(f"machine.{field}", ckpt["machine"].get(field), expect["machine"].get(field))
+    old_versions = _versions_of(ckpt)
+    new_versions = exe_versions() if old_versions is not None else None
+    if old_versions is not None and new_versions is not None:
+        check("versions", old_versions, new_versions)
+    return ckpt
+
+
+def _write_checkpoint(path: Path, doc: dict) -> None:
+    """Write + rename, so a kill mid-write never leaves a corrupt checkpoint."""
+    tmp = path.with_name(path.name + ".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    tmp.replace(path)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     backend = config.load_backend(args.backend)
     tasks = load_tasks(args.tasks)
@@ -176,6 +248,54 @@ def cmd_run(args: argparse.Namespace) -> None:
     probed: set[str] = set()
     raw_cells: list[dict] = []  # raw per-cell traces → persisted, then aggregated
 
+    # The checkpoint doc is the raw doc plus a `resume` block of run bookkeeping;
+    # finishing a run deletes it, so its existence means an interrupted one.
+    base = {
+        "schema_version": RAW_SCHEMA_VERSION,
+        "backend": backend.key,
+        "machine": machine.info(args.machine),
+        # The run box's sampling sources, recorded so re-aggregating this raw on a
+        # different box reproduces the same vram_method (aggregate.sampling_sources).
+        "sampling": {"nvml": sampling.NVML_AVAILABLE, "drm": sampling.DRM_AVAILABLE},
+        "job_spawns": args.spawns,
+        "job_iters": args.iters,
+    }
+    ckpt_path = args.out / f"{backend.key}-checkpoint.json.gz"
+    ckpt = (
+        None
+        if args.fresh
+        else _read_checkpoint(ckpt_path, base, lambda: _exe_versions(backend.cmd))
+    )
+    done: set[tuple[str, str, str]] = set()
+    if ckpt:
+        resume = ckpt["resume"]
+        touched = {Path(p) for p in resume["touched"]}
+        cold_load = {Path(p): ms for p, ms in resume["cold_load"].items()}
+        cold_used = {Path(p) for p in resume["cold_used"]}
+        overruns = list(resume["overruns"])
+        probes = ckpt["probes"]
+        probed = {p["provider"] for p in probes}
+        raw_cells = ckpt["cells"]
+        done = {(c["model"], c["quant"], c["provider"]) for c in raw_cells}
+        log(f"resuming from {ckpt_path.name}: {len(done)} cells already measured")
+    args.out.mkdir(parents=True, exist_ok=True)
+
+    def checkpoint() -> None:
+        _write_checkpoint(
+            ckpt_path,
+            {
+                **base,
+                "probes": probes,
+                "cells": raw_cells,
+                "resume": {
+                    "touched": sorted(str(p) for p in touched),
+                    "cold_load": {str(p): ms for p, ms in cold_load.items()},
+                    "cold_used": sorted(str(p) for p in cold_used),
+                    "overruns": overruns,
+                },
+            },
+        )
+
     # Shader caches live under one scratch root for the run and are thrown away
     # with it: every cell's sweep gets an empty directory (so its warmup pays a
     # deterministic compile), its job spawns reuse the now-populated one (so they
@@ -193,8 +313,18 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     for idx, (v, ep) in enumerate(cells, 1):
         head = f"[{idx}/{len(cells)}] {v.model} {v.quant} {ep}"
+        if (v.model, v.quant, ep) in done:
+            log(f"{head}  already measured — skipped (checkpoint)")
+            continue
         lane_dir = ep.replace(":", "-")
         cell_cache = cache_root / f"cell-{idx}-{lane_dir}"
+
+        # Checkpoint before the first spawn touches the model: if this cell is
+        # interrupted mid-flight, the resumed run must not call the model cold —
+        # the page cache is already warm with it.
+        is_cold = v.model_path not in touched
+        touched.add(v.model_path)
+        checkpoint()
 
         # 0. one ceiling probe per provider, ahead of its first cell.
         if ep not in probed:
@@ -211,8 +341,6 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         # 1. the sweep — its spawn runs the brain-check gate on its own model
         # load first, then measures its points; track the genuine cold first-touch.
-        is_cold = v.model_path not in touched
-        touched.add(v.model_path)
         with working(f"{head}  gate + sweep"):
             sweep_status, sweep_res = _sweep(
                 backend,
@@ -291,22 +419,11 @@ def cmd_run(args: argparse.Namespace) -> None:
             cell["cold_ms"] = cold_load[v.model_path]
             cold_used.add(v.model_path)
         raw_cells.append(cell)
+        checkpoint()
 
     shader_root.cleanup()  # the compiled pipelines were a measurement, not an artifact
 
-    raw = {
-        "schema_version": RAW_SCHEMA_VERSION,
-        "backend": backend.key,
-        "machine": machine.info(args.machine),
-        # The run box's sampling sources, recorded so re-aggregating this raw on a
-        # different box reproduces the same vram_method (aggregate.sampling_sources).
-        "sampling": {"nvml": sampling.NVML_AVAILABLE, "drm": sampling.DRM_AVAILABLE},
-        "job_spawns": args.spawns,
-        "job_iters": args.iters,
-        "probes": probes,
-        "cells": raw_cells,
-    }
-    args.out.mkdir(parents=True, exist_ok=True)
+    raw = {**base, "probes": probes, "cells": raw_cells}
     raw_path = args.out / f"{backend.key}-raw.json.gz"
     with gzip.open(raw_path, "wt", encoding="utf-8") as fh:
         json.dump(raw, fh)
@@ -317,6 +434,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_path = args.out / f"{backend.key}-results.json"
     out_path.write_text(json.dumps(results, indent=2))
     log(f"wrote {out_path}  ({len(results['runs'])} runs)")
+    ckpt_path.unlink(missing_ok=True)  # the run completed; the checkpoint has served
 
     if overruns:
         log("")

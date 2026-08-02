@@ -90,6 +90,11 @@ def main() -> None:
     p_run.add_argument(
         "--machine", help="machine name for results.machine.host (default: hostname)"
     )
+    p_run.add_argument(
+        "--fresh",
+        action="store_true",
+        help="discard an interrupted run's checkpoint instead of resuming from it",
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_agg = sub.add_parser("aggregate", help="re-derive results from persisted raw traces")

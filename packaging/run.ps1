@@ -67,9 +67,9 @@ Say "What will be measured on this machine"
 & $uv run survey plan --backend llamacpp --models $models
 if ($LASTEXITCODE -ne 0) { Fail "planning failed - please open an issue with the output above." }
 
-Say "Running the benchmark (about 15 min on fast machines, up to an hour on slow ones; keep it plugged in and idle)"
+Say "Running the benchmark (about 15 min on fast machines, up to an hour on slow ones; keep it plugged in and idle - if interrupted, a re-run resumes)"
 & $uv run survey run --backend llamacpp --models $models --out results/local
-if ($LASTEXITCODE -ne 0) { Fail "the benchmark run failed - please open an issue with the output above." }
+if ($LASTEXITCODE -ne 0) { Fail "the benchmark run failed - re-running run.bat resumes from the last finished step. If it fails the same way again, please open an issue with the output above." }
 
 Say "Packing your submission"
 & $uv run survey bundle results/local --out .

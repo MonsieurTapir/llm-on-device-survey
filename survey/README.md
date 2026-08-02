@@ -25,7 +25,11 @@ uv run survey publish results/my-box --name my-box     # stage a submission
 restrict the sweep, and `--machine` to name the box in the results (default:
 hostname). Progress goes to stderr; it writes `<backend>-raw.json.gz` (raw
 per-spawn traces) and `<backend>-results.json` (aggregated `[p50, max]`) into
-`--out`.
+`--out`. Every finished cell is checkpointed to `<backend>-checkpoint.json.gz`
+there too: an interrupted run resumes on the next invocation, skipping the
+cells already measured (`--fresh` starts over; a checkpoint from a different
+machine, job shape, or backend stack refuses to resume). A completed run
+deletes the checkpoint.
 
 ## The pipeline
 
