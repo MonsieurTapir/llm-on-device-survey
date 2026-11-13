@@ -1,147 +1,246 @@
+/* Every colour is a custom property, light and dark. Hue means one thing on the
+   page — the class of machine — so the controls are neutral. */
 :root {
   --bg: #fcfcfb; --ink: #1d2229; --ink2: #5b6570; --line: #e4e2dd;
-  --card: #f4f3f0; --accent: #2a78d6;
+  --card: #f4f3f0; --band: #efeeea; --accent: #454d57;
+  --c-pc-gpu: #2a78d6; --c-mac: #eb6834; --c-pc: #1baf7a;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #16181c; --ink: #e8e6e1; --ink2: #9aa2ab; --line: #2e323a;
-          --card: #1f2228; --accent: #3987e5; }
+  :root {
+    --bg: #16181c; --ink: #e8e6e1; --ink2: #9aa2ab; --line: #2e323a;
+    --card: #1f2228; --band: #1e2126; --accent: #b4bac2;
+    --c-pc-gpu: #3987e5; --c-mac: #d95926; --c-pc: #199e70;
+    color-scheme: dark;
+  }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
-  margin: 0 auto; padding: 2rem 1.25rem 4rem; max-width: 62rem;
-  background: var(--bg); color: var(--ink);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font);
+  padding-block: 1.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
-h2 { font-size: 1.15rem; margin: 2.2rem 0 .4rem; }
+.wrap { max-width: 80rem; margin: 0 auto; }
 a { color: var(--accent); }
-.pitch { color: var(--ink2); margin: 0 0 .8rem; }
-.fine { color: var(--ink2); font-size: .88rem; }
-.chips { display: flex; gap: .5rem; flex-wrap: wrap; }
-.chip { background: var(--card); border-radius: 999px; padding: .15rem .7rem;
-        font-size: .85rem; color: var(--ink2); }
-.chip b { color: var(--ink); }
+h1 { font-size: 1.45rem; line-height: 1.2; margin: 0; text-wrap: balance; }
+h3 { font-size: .92rem; margin: 0 0 .5rem; }
+.fine { color: var(--ink2); font-size: .86rem; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* the contribute call to action: a closed bar until the reader wants the command */
-.cta { background: var(--card); border-radius: 10px; margin: 1.4rem 0 0;
-       border-left: 3px solid var(--accent); }
-.cta > summary { display: flex; align-items: baseline; gap: .6rem; cursor: pointer;
-                 padding: .8rem 1rem; list-style: none; }
-.cta > summary::-webkit-details-marker { display: none; }
-.cta > summary b { color: var(--accent); }
-.cta > summary::after { content: "+"; margin-left: auto; color: var(--ink2); }
-.cta[open] > summary::after { content: "–"; }
-.cta-body { padding: 0 1rem .9rem; }
-.cmd { display: flex; align-items: center; gap: .6rem; margin: .5rem 0; }
-.cmd .os { flex: 0 0 7.5rem; color: var(--ink2); font-size: .85rem; }
-.cmd code {
-  /* the raw.githubusercontent URL never fits one line — wrap, don't scroll */
-  flex: 1; white-space: pre-wrap; word-break: break-all; padding: .45rem .6rem;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  font: .82rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-button.copy {
-  flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg);
-  color: var(--ink); border-radius: 6px; padding: .35rem .7rem;
-  font-size: .82rem; cursor: pointer;
-}
-button.copy:hover { border-color: var(--accent); color: var(--accent); }
+/* header */
+.top { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center; }
+.top .source { margin-left: auto; font-size: .85rem; }
+details.add { position: relative; }
+details.add > summary { list-style: none; cursor: pointer; border: 1px solid var(--accent);
+  color: var(--accent); border-radius: 999px; padding: .15rem .8rem; font-size: .85rem; font-weight: 600; }
+details.add > summary::-webkit-details-marker { display: none; }
+details.add[open] > summary { background: var(--accent); color: var(--bg); }
+.add-body { position: absolute; right: 0; top: calc(100% + .4rem); z-index: 5; width: min(34rem, calc(100vw - 32px));
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: .8rem .9rem;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .12); }
+.add-body code { display: block; font: .78rem/1.4 var(--mono); white-space: pre-wrap; word-break: break-all;
+  background: var(--card); border-radius: 6px; padding: .45rem .6rem; margin: .3rem 0 .6rem; }
+.empty { margin-top: 1.4rem; }
 
-/* Each chart scrolls inside its own box, so a chart wider than the window never
-   drags the page sideways with it. `display` is restated on the class vega-embed
-   stamps on the island as it mounts: that stylesheet is injected at embed time and
-   would otherwise win, and its `inline-block` makes the box shrink-to-fit the chart
-   — which is the one thing a scroll container must not do. */
-.island, .island.vega-embed { display: block; overflow-x: auto; max-width: 100%;
-                              margin: .6rem 0; }
-/* Side-by-side charts where two fit, stacked where they do not — and on one narrow
-   line an island is allowed to be narrower than its chart, because it scrolls. */
-.curves { display: flex; gap: 1.2rem; flex-wrap: wrap; }
-.curves > .island { flex: 0 1 auto; min-width: 0; }
-/* A wide table scrolls in its own box too, for the same reason. */
+/* shell: the rail holds the state, the stage shows it */
+.shell { display: grid; grid-template-columns: 19.5rem minmax(0, 1fr); gap: 1.6rem; margin-top: 1.4rem; align-items: start; }
+.rail { background: var(--card); border-radius: 12px; padding: 1rem; position: sticky;
+        top: calc(env(safe-area-inset-top, 0px) + 12px); display: grid; gap: 1.2rem; }
+.stage { display: grid; gap: 1.1rem; min-width: 0; }
+.stage > * { min-width: 0; }
+@media (min-width: 901px) { .rail { max-height: calc(100vh - 24px); overflow-y: auto; } }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; }
+}
+
+/* rail controls */
+.field-label { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink2);
+               font-weight: 600; margin-bottom: .45rem; display: block; }
+.ctl { display: grid; grid-template-columns: 1fr auto auto; gap: .15rem .5rem; align-items: baseline; }
+.ctl + .ctl { margin-top: 1rem; }
+.ctl label { font-size: .9rem; font-weight: 600; }
+.ctl input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: .25rem 0 0; }
+.ctl input[type=number] { width: 5.4rem; font: 600 .9rem var(--mono); padding: .15rem .35rem;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); text-align: right; }
+.ctl .unit { font-size: .76rem; color: var(--ink2); }
+.stops { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: .15rem; }
+.stops button { background: none; border: 0; padding: 0; font-size: .76rem; color: var(--ink2); cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px; }
+.stops button:hover { color: var(--accent); }
+.zones { border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem; }
+.zones-title { display: block; font-size: .9rem; font-weight: 600; margin-bottom: .45rem; }
+.checks { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .9rem; }
+.checks label { display: inline-flex; gap: .4rem; align-items: center; cursor: pointer; }
+.checks input { accent-color: var(--accent); }
+.fleet-note { margin: .6rem 0 0; font-size: .76rem; }
+select.pick { width: 100%; font: inherit; font-size: .86rem; padding: .35rem .4rem; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font-size: .84rem; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  border-radius: 7px; padding: .2rem .55rem; cursor: pointer; line-height: 1.25; }
+.seg button:hover { border-color: var(--accent); }
+.seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg)); }
+
+/* split bar: drag a separator to move share between its two neighbours */
+.sp-title { font-size: .76rem; color: var(--ink2); margin: .1rem 0 .3rem; }
+.sp-legend + .sp-title { margin-top: .9rem; }
+.split { position: relative; height: 22px; margin-block: 5px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.sp-track { position: absolute; inset: 0; border-radius: 6px; background: var(--bg); overflow: hidden; }
+.sp-seg { position: absolute; top: 0; bottom: 0; }
+.sp-seg.t0, .sp-sw.t0, .sp-seg.z0, .sp-sw.z0 { background: var(--ink2); opacity: .85; }
+.sp-seg.t1, .sp-sw.t1, .sp-seg.z1, .sp-sw.z1 { background: var(--ink2); opacity: .5; }
+.sp-seg.t2, .sp-sw.t2, .sp-seg.z2, .sp-sw.z2 { background: var(--ink2); opacity: .24; }
+/* names and values sit under the bar, so a thin slice never loses its label */
+.sp-legend { display: grid; grid-template-columns: repeat(3, auto); justify-content: space-between; gap: 0 .3rem;
+  margin-top: .4rem; font-size: .72rem; color: var(--ink2); }
+.sp-legend span { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .3rem; align-items: center; white-space: nowrap; }
+.sp-legend b { grid-column: 2; font: 600 .84rem var(--font); font-variant-numeric: tabular-nums; color: var(--ink); min-height: 1.25em; }
+/* the time limits: three fixed columns, so nothing shifts while a separator is dragged */
+.sp-legend.even { grid-template-columns: repeat(3, minmax(0, 1fr)); justify-content: stretch; }
+/* the classes: one per line, their names being as long as they are */
+.sp-legend.list { grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: .1rem; }
+.sp-legend.list span { grid-template-columns: auto minmax(0, 1fr) auto; }
+.sp-legend.list b { grid-column: 3; }
+.sp-sw { width: 8px; height: 8px; border-radius: 2px; display: block; }
+/* a separator: a slim pill standing a little proud of the bar, ringed in the rail's
+   own colour so it parts the two slices it sits between */
+.sp-h { position: absolute; top: -4px; bottom: -4px; width: 20px; margin-left: -10px; cursor: col-resize; touch-action: none; z-index: 1; }
+.sp-h::before { content: ""; position: absolute; left: 7px; width: 6px; top: 0; bottom: 0; border-radius: 3px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--card); }
+.sp-h:hover::before { left: 6px; width: 8px; border-radius: 4px; }
+.sp-h:focus-visible { outline: none; }
+.sp-h:focus-visible::before { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
+
+/* tabs, the answer, panels */
+.tabs { display: flex; gap: 1.4rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tabs button { font-weight: 600; background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--ink2); padding: .4rem 0; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+/* the answer, and what it costs in memory: two numbers at a fixed size */
+.stats { display: flex; flex-wrap: wrap; gap: .8rem 2rem; }
+.stat { display: grid; gap: .15rem; justify-items: start; }
+.stat .field-label { margin: 0; }
+.stat b { font: 700 2.6rem/1 var(--font); font-variant-numeric: tabular-nums; }
+.stat span:last-child { color: var(--ink2); font-size: .9rem; min-height: 1.5em; }
+/* each block holds its width, so a number changing length moves nothing beside it */
+@media (min-width: 641px) {
+  #cover { min-width: 13.5rem; }
+  #memory { min-width: 9.5rem; }
+}
+.panel { display: grid; gap: 1rem; min-width: 0; }
+.panel > * { min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; font-size: .84rem; }
+.toolbar h3 { margin: 0; }
+.toolbar label { display: inline-flex; gap: .4rem; align-items: center; color: var(--ink2); }
+.toolbar select, .toolbar input[type=search] { font: inherit; padding: .25rem .4rem; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); max-width: 100%; }
+.toolbar select.pick { width: auto; min-width: min(16rem, 100%); }
+.toolbar input[type=search] { min-width: min(18rem, 100%); }
+.toolbar input[type=checkbox] { accent-color: var(--accent); }
+.toolbar .push { margin-left: auto; }
+.btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: .2rem .6rem; cursor: pointer; font-size: .84rem; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.chart svg { display: block; width: 100%; height: auto; }
+.key { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .8rem; color: var(--ink2); align-items: center; }
+.key span { display: inline-flex; align-items: center; gap: .35rem; }
+.key svg { flex: none; }
+
+/* svg marks: every colour comes from a token */
+svg text { font-family: var(--font); fill: var(--ink2); font-size: 11px; pointer-events: none; }
+svg text.t-ink { fill: var(--ink); }
+svg text.t-lab { fill: var(--ink); font-size: 11.5px; font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 3.5px; stroke-linejoin: round; }
+svg text.t-ref { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+svg text.t-target { fill: var(--ink); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+svg text.t-opt { fill: var(--ink2); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+svg text.t-lane { fill: var(--ink2); font-size: 12px; }
+svg text.t-pct { fill: var(--ink); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+.grid { stroke: var(--line); stroke-width: 1; }
+.miss { fill: var(--band); }
+.zone-tol { fill: var(--band); opacity: .5; }
+.target { stroke: var(--ink); stroke-width: 2; fill: none; }
+.optimal { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 5 3; fill: none; }
+.marker { stroke: var(--ink2); stroke-width: 1; }
+.halo { fill: none; stroke: var(--ink); stroke-width: 1.5; pointer-events: none; }
+.cut { stroke: var(--bg); stroke-width: 2; pointer-events: none; }
+/* the three classes of machine */
+.k-pc-gpu { fill: var(--c-pc-gpu); stroke: var(--c-pc-gpu); }
+.k-mac { fill: var(--c-mac); stroke: var(--c-mac); }
+.k-pc { fill: var(--c-pc); stroke: var(--c-pc); }
+.bg-pc-gpu { background: var(--c-pc-gpu); } .bg-mac { background: var(--c-mac); } .bg-pc { background: var(--c-pc); }
+/* a class on the coverage chart: darker within the tolerable limit, darker still within the optimal one */
+.hump { fill-opacity: .12; stroke-width: 1.5; stroke-opacity: .85; stroke-linejoin: round; }
+.hump.made { fill-opacity: .26; stroke: none; pointer-events: none; }
+.hump.best { fill-opacity: .34; stroke: none; pointer-events: none; }
+.dot { stroke: var(--bg); stroke-width: 2; cursor: pointer; }
+/* a measured machine is a ring in its class's colour */
+.dot.pin { fill: var(--bg); stroke-width: 2; }
+.dot.pin.k-pc-gpu { stroke: var(--c-pc-gpu); } .dot.pin.k-mac { stroke: var(--c-mac); } .dot.pin.k-pc { stroke: var(--c-pc); }
+.ln { fill: none; stroke-width: 2; }
+.swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* compare: timelines */
+.rows { display: grid; gap: 1rem; }
+.mrow { display: grid; gap: .1rem; }
+.mrow:first-child { margin-top: 1rem; }
+#cmp-key { margin-top: .6rem; }
+#cmp-body .toolbar { margin-bottom: .4rem; }
+.row { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr) 11rem; gap: .15rem .8rem; align-items: center; }
+.row .name { font-weight: 600; font-size: .9rem; display: flex; gap: .45rem; align-items: center; min-width: 0; }
+.row .name small, .row .end small { display: block; font-weight: 400; color: var(--ink2); font-size: .76rem; }
+.row .end b { font: 600 1rem var(--mono); }
+.row.sub .name { font-weight: 400; font-size: .78rem; color: var(--ink2); padding-left: 1.25rem; }
+.row.sub .track { height: 15px; }
+.row.sub .bar { height: 5px; opacity: .6; }
+.row.sub .end { font: .78rem var(--mono); color: var(--ink2); }
+.row .x, th .x { border: 0; background: none; cursor: pointer; color: var(--ink2); border-radius: 50%;
+  width: 1.3rem; height: 1.3rem; line-height: 1; padding: 0; }
+.row .x { margin-left: auto; flex: none; }
+.row .x:hover, th .x:hover { color: var(--ink); background: var(--card); }
+.track { position: relative; height: 26px; display: flex; align-items: center; }
+.track .tmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--ink); }
+.track .tmark span { position: absolute; bottom: 100%; left: -2px; transform: translateX(-50%); font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.track .tmark.edge span { transform: none; left: auto; right: 0; }
+.bar { display: flex; gap: 2px; height: 14px; min-width: 0; }
+.bar i { display: block; height: 100%; border-radius: 3px; min-width: 2px; }
+.bar i.p-read { opacity: .5; }
+.bar.clip { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+@media (max-width: 640px) {
+  .row { grid-template-columns: 1fr auto; }
+  .row .track { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* tables: a wide one scrolls inside its own box, never the page */
 .scroll-x { overflow-x: auto; }
-/* Vega's tooltip, in the page's own ink and type.
-   Its default is a 10px sans-serif card in fixed white-on-black with the value cell set
-   to `display: block` — which takes the value out of the table and out of line with its
-   own key, and leaves a white card on the dark surface. Here it is one card in the
-   page's colors, and each fact is one row: key against value, both on the same
-   baseline. It is a fixed-position element on the body, so no island's scroll box can
-   clip it; the width is bounded by the window because vega places the card beside the
-   cursor and, when it fits nowhere, off the left edge (report.js nudges it back).
-   Every selector leads with `body` and repeats vega's own `table tr` to outrank the
-   rules it injects when the first chart mounts — its `#vg-tooltip-element table tr td`
-   is more specific than any short form of the same thing. */
-body #vg-tooltip-element {
-  max-width: calc(100vw - 1.2rem); box-sizing: border-box;
-  padding: .4rem .55rem; border-radius: 8px;
-  background: var(--card); color: var(--ink); border: 1px solid var(--line);
-  box-shadow: 0 3px 12px rgb(0 0 0 / 18%);
-  font: .8rem/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-body #vg-tooltip-element table { border-spacing: 0; }
-body #vg-tooltip-element table tr td {
-  padding: .08rem 0; vertical-align: baseline; overflow: visible;
-  text-overflow: clip; border: 0;
-}
-/* Wide enough that none of the page's field names wraps: a wrapped key reads as two
-   facts. The values wrap instead, which is the column that can afford to. */
-body #vg-tooltip-element table tr td.key {
-  color: var(--ink2); text-align: right; padding-right: .45rem; max-width: 14rem;
-  font-weight: 400; white-space: normal;
-}
-body #vg-tooltip-element table tr td.value {
-  display: table-cell; text-align: left; max-width: min(15rem, 45vw);
-  max-height: none; white-space: normal; font-variant-numeric: tabular-nums;
-}
-details { margin: .5rem 0; }
-summary { cursor: pointer; font-weight: 600; }
-/* an aside inside a section's fine print: the detail that would be a wall inline */
-details.fine > summary { font-weight: 400; color: var(--ink2); }
-details.fine > summary:hover { color: var(--ink); }
-details.fine p { margin: .4rem 0 0; }
+table { border-collapse: collapse; font-size: .84rem; }
+th, td { text-align: right; padding: .32rem .7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th.t, td.t { text-align: left; }
+th { color: var(--ink2); font-weight: 500; font-size: .78rem; vertical-align: bottom; }
+table.cmp th.dev { color: var(--ink); font-weight: 600; font-size: .84rem; min-width: 8.5rem; }
+table.cmp th.dev small { display: block; font-weight: 400; color: var(--ink2); font-size: .74rem; }
+table.cmp th.dev, table.cmp td.txt { white-space: normal; max-width: 12rem; }
+table.cmp td:first-child, table.cmp th:first-child { text-align: left; padding-left: 0; color: var(--ink2); }
+table.cmp tr.sec td { border-bottom: 0; padding-top: 1rem; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; }
+.best { font-weight: 700; }
+table.data { width: 100%; }
+table.data th button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font-size: inherit; font-weight: inherit; }
+table.data th[aria-sort] button { color: var(--ink); font-weight: 700; }
+table.data tbody tr:hover { background: var(--card); }
+table.data td.dev { font-weight: 600; }
+table.data input { accent-color: var(--accent); }
+.pill { display: inline-block; border-radius: 999px; padding: 0 .5rem; font-size: .76rem; border: 1px solid var(--line); }
+.pill.ok { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-/* the tail: one fold, its four tables behind a tab strip */
-.fold { margin: 2.2rem 0 0; border-top: 1px solid var(--line);
-        border-bottom: 1px solid var(--line); }
-.fold > summary { display: flex; align-items: baseline; gap: .5rem;
-                  padding: .7rem .1rem; list-style: none; }
-.fold > summary::-webkit-details-marker { display: none; }
-.fold > summary::before { content: "+"; color: var(--ink2); font-weight: 400;
-                          width: .7rem; }
-.fold[open] > summary::before { content: "–"; }
-.fold > summary .hint { margin-left: auto; color: var(--ink2); font-weight: 400;
-                        font-size: .85rem; }
-.fold > :last-child { margin-bottom: 1rem; }
-.tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin: .1rem 0 .6rem; }
-.tab { background: none; border: 0; border-radius: 6px; cursor: pointer;
-       color: var(--ink2); font: inherit; font-size: .85rem; padding: .25rem .6rem; }
-.tab:hover { color: var(--ink); }
-.tab.on { background: var(--card); color: var(--ink); font-weight: 600; }
-.panel > .fine:first-child { margin-top: 0; }
-
-table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
-th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); }
-th { color: var(--ink2); font-weight: 600; }
-pre {
-  background: var(--card); border-radius: 8px; padding: .7rem .9rem;
-  overflow-x: auto; white-space: pre-wrap; font-size: .82rem;
-}
-footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; }
-
-/* the one control row: it scopes every chart on the page */
-.controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .9rem;
-  background: var(--card); border-radius: 8px; padding: .55rem .8rem;
-  margin: .9rem 0 .2rem; font-size: .85rem; color: var(--ink2); }
-.controls label { display: flex; align-items: center; gap: .35rem; }
-.controls select { background: var(--bg); color: var(--ink); font: inherit;
-  border: 1px solid var(--line); border-radius: 5px; padding: .2rem 1.4rem .2rem .4rem; }
-/* the task row's token counts: same field as the selects, sized for five digits */
-.controls input[type="number"] { background: var(--bg); color: var(--ink);
-  font: inherit; border: 1px solid var(--line); border-radius: 5px;
-  padding: .2rem .3rem; width: 5rem; }
-/* what a token count is in words, beside the field that holds the tokens */
-.controls .words { color: var(--ink2); font-size: .78rem; white-space: nowrap; }
-.controls .fine { margin-left: auto; }
-/* a control the current reading has no use for, and the panels behind the tab strip */
-.hidden { display: none !important; }
-#task-note { margin: .4rem 0 0; }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: .4rem .6rem; font-size: .8rem; line-height: 1.35; max-width: 18rem;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .2); }
+#tip b { display: block; }
+#tip i { font-style: normal; opacity: .7; }

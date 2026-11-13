@@ -18,8 +18,7 @@ dependencies = [
 # The report builder's stack is opt-in: `uv sync --group analysis`.
 analysis = [
     "pandas>=2.2",       # tidy frame over the per-machine results JSON
-    "altair>=6.0",       # charts as vega-lite specs; the site embeds them
-    "jinja2>=3.1",       # the report is jinja templates over computed context
+    "jinja2>=3.1",       # the report is a jinja template over one data pack
 ]
 dev = [
     "pytest>=8.0",
