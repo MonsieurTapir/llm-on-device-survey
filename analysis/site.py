@@ -41,7 +41,7 @@ from pathlib import Path
 import pandas as pd
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import load_memory, load_probes, load_results, load_sweeps
+from . import load_memory, load_probes, load_results, load_sweeps, load_thread_scaling
 
 PKG = Path(__file__).parent
 REPO = PKG.parent  # …/analysis → the repo root
@@ -55,14 +55,24 @@ INSTALL_PS = (
     "irm https://raw.githubusercontent.com/MonsieurTapir/llm-on-device-survey/main/run.ps1 | iex"
 )
 
-# The classes a fleet is made of, in page order: key, label, and the share of the
-# fleet the page opens on. The shares are a starting point for the reader to move,
-# not a measurement of any market. `assets/report.css` carries one colour per key.
+# The classes a fleet is made of, in page order: key, label, the share of the fleet
+# the page opens on, and the CPUs the class draws on. The shares are a starting
+# point for the reader to move, not a measurement of any market. Classes that name
+# the same CPUs are one population on the CPU backend: having a card says nothing
+# about the processor beside it, so every PC's CPU counts for both PC classes.
+# `assets/report.css` carries one colour per key.
 CLASSES = (
-    ("pc-gpu", "PC with GPU", 15),
-    ("pc", "PC without GPU", 70),
-    ("mac", "Apple Silicon Mac", 15),
+    ("pc-gpu", "PC with GPU", 15, "pc"),
+    ("pc", "PC without GPU", 70, "pc"),
+    ("mac", "Apple Silicon Mac", 15, "mac"),
 )
+
+# The cores a typical machine has, and a weak one, per group of CPUs. A class is
+# centred on its CPUs held to the typical count, by what their thread ladders say
+# that costs, so a shelf of many-core workstations does not pass for the fleet. It
+# reaches as far as any of them gets from there, as it ran or held to the weak
+# count. A group not named here is taken as measured.
+TIER_CORES = {"pc": {"typical": 6, "weak": 4}}
 
 # The backends a lane can run on, in page order, as the reader knows them. A family
 # the shelf holds and this does not name is shown under its own key.
@@ -366,10 +376,32 @@ def _memory(mem: pd.DataFrame) -> dict[tuple, dict]:
     return out
 
 
-def _records(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame) -> list[dict]:
+def _thread_ladders(scaling: pd.DataFrame) -> dict[tuple, dict]:
+    """Per (lane, model, quant), what each phase's rate does as a CPU lane is given
+    fewer threads: `{phase: {"threads", "points"}}`, `points` being (threads, tok/s)
+    pairs ascending and `threads` the width the lane itself ran that phase at. The
+    rates compare with each other and with nothing else — the ladder's work is not
+    the sweep's — so the page reads ratios off them. A phase measured at one width
+    has no ratio to give and is left out."""
+    out: dict[tuple, dict] = {}
+    if scaling.empty:
+        return out
+    for (lane, model, quant, phase), g in scaling.groupby(["lane", "model", "quant", "phase"]):
+        g = g[(g.threads > 0) & (g.tps > 0)].sort_values("threads")
+        own = _plain(g[f"threads_{'batch' if phase == 'prefill' else 'decode'}"].iloc[0], 0)
+        if g.threads.nunique() < 2 or own is None:
+            continue
+        points = [[int(t), round(float(v), 2)] for t, v in zip(g.threads, g.tps, strict=True)]
+        out.setdefault((lane, model, quant), {})[phase] = {"threads": int(own), "points": points}
+    return out
+
+
+def _records(
+    df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame, scaling: pd.DataFrame
+) -> list[dict]:
     """Everything the page needs to price a task, per (lane, model): the measured
-    prefill curve, the decode ladder, the once-per-launch costs and the allocator's
-    reservations.
+    prefill curve, the decode ladder, the once-per-launch costs, the allocator's
+    reservations and, on a CPU lane, the thread ladder (`scaling`).
 
     Both cost curves are the sweep's measured points, never a fit of them: `curve`
     is cumulative time to first token over depth, `ladder` is (fill, tok/s) pairs,
@@ -384,6 +416,7 @@ def _records(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame) -> list[
     geo = _task_geometry(sweeps)
     ids = _model_ids(df)
     memory = _memory(mem)
+    threads = _thread_ladders(scaling)
     records = []
     for r in df.itertuples():
         g = geo.get((r.machine, r.backend, r.provider, r.model, r.quant), {})
@@ -428,6 +461,7 @@ def _records(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame) -> list[
                 "load_s": round(sum(paid) / 1e3, 2) if paid else None,
                 "compile_s": _compile_seconds(r),
                 "mem": memory.get((r.lane, r.model, r.quant)),
+                "scaling": threads.get((r.lane, r.model, r.quant)),
             }
         )
     return records
@@ -447,7 +481,13 @@ def _ceilings(probes: pd.DataFrame) -> dict[str, dict]:
     return out
 
 
-def _pack(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame, probes: pd.DataFrame) -> dict:
+def _pack(
+    df: pd.DataFrame,
+    sweeps: pd.DataFrame,
+    mem: pd.DataFrame,
+    probes: pd.DataFrame,
+    scaling: pd.DataFrame,
+) -> dict:
     """The one data island the page evaluates: the records and what they hang off.
 
     Only what has a record is carried — a lane the sweep measured nothing on has no
@@ -456,7 +496,7 @@ def _pack(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame, probes: pd.
     short; `machines` carry the name a reader would call the box, and its class;
     `models` are in size order. `classes` and `families` are the page's vocabulary
     for the two things a reader filters on."""
-    records = _records(df, sweeps, mem)
+    records = _records(df, sweeps, mem, scaling)
     measured = {rec["lane"] for rec in records}
     ceilings = _ceilings(probes)
     lanes = []
@@ -520,7 +560,16 @@ def _pack(df: pd.DataFrame, sweeps: pd.DataFrame, mem: pd.DataFrame, probes: pd.
         "lanes": lanes,
         "machines": machines,
         "models": models,
-        "classes": [{"key": k, "label": label, "share": share} for k, label, share in CLASSES],
+        "classes": [
+            {
+                "key": k,
+                "label": label,
+                "share": share,
+                "cpus": cpus,
+                "cores": TIER_CORES.get(cpus),
+            }
+            for k, label, share, cpus in CLASSES
+        ],
         "families": families,
         "default_model": DEFAULT_MODEL if DEFAULT_MODEL in seen else models[0]["id"],
     }
@@ -537,10 +586,10 @@ def build(published: Path, out: Path) -> None:
     if not df.empty:
         df = _with_lanes(df)
         # An empty frame has no columns for `_with_lanes` to read, and a shelf whose
-        # runs carried no allocator ladder or no probes is exactly that.
-        frames = [load_sweeps(published), load_memory(published), load_probes(published)]
-        sweeps, mem, probes = (f if f.empty else _with_lanes(f) for f in frames)
-        pack = _pack(df, sweeps, mem, probes)
+        # runs carried no allocator ladder, no probes or no thread ladder is exactly that.
+        loaders = (load_sweeps, load_memory, load_probes, load_thread_scaling)
+        frames = [load(published) for load in loaders]
+        pack = _pack(df, *(f if f.empty else _with_lanes(f) for f in frames))
         # A shelf where no sweep measured a curve has nothing to price.
         if pack["records"]:
             context.update(empty=False, pack=pack)

@@ -13,7 +13,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis import load_memory, load_probes, load_results, load_sweeps, site
+from analysis import (
+    load_memory,
+    load_probes,
+    load_results,
+    load_sweeps,
+    load_thread_scaling,
+    site,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PAYLOAD = "</script><script>alert(1)</script>"
@@ -39,7 +46,8 @@ def _island(html: str) -> dict:
 
 def _fixture_pack() -> dict:
     df = site._with_lanes(load_results(FIXTURES))
-    frames = [load_sweeps(FIXTURES), load_memory(FIXTURES), load_probes(FIXTURES)]
+    loaders = (load_sweeps, load_memory, load_probes, load_thread_scaling)
+    frames = [load(FIXTURES) for load in loaders]
     return site._pack(df, *(f if f.empty else site._with_lanes(f) for f in frames))
 
 
@@ -164,6 +172,14 @@ def test_pack_carries_the_measured_curves_and_what_a_launch_costs():
     assert slow["curve"] == [[0, 0], [512, 9000.0]] and slow["pre_max"] == 512
     assert slow["ladder"] == []
 
+    # A CPU lane carries its thread ladder, each phase with the width the lane ran
+    # it at; a GPU lane has none.
+    assert cpu["scaling"] == {
+        "prefill": {"threads": 8, "points": [[2, 177.9], [4, 338.09], [8, 602.64]]},
+        "decode": {"threads": 8, "points": [[2, 15.2], [4, 20.4], [8, 22.1]]},
+    }
+    assert cuda["scaling"] is None
+
     # Nothing measured at all: nothing to evaluate, so no record.
     assert ("RTX 3090 · cuda", "gemma4-E2B") not in records  # errored
     assert ("Apple M1 Max · mtl", "qwen3-4B") not in records
@@ -242,8 +258,13 @@ def test_pack_names_lanes_machines_and_models_for_a_reader():
     assert [m["id"] for m in pack["models"]] == ["gemma4-E2B", "gemma4-E4B", "qwen3-4B"]
     assert pack["default_model"] == site.DEFAULT_MODEL
     # the page's vocabulary: every class it can draw, every backend the shelf holds
-    assert [c["key"] for c in pack["classes"]] == [k for k, _, _ in site.CLASSES]
+    assert [c["key"] for c in pack["classes"]] == [k for k, *_ in site.CLASSES]
     assert sum(c["share"] for c in pack["classes"]) == 100
+    # the two PC classes draw on the same CPUs, held to the same core counts; a
+    # Mac draws on its own, as measured
+    assert [c["cpus"] for c in pack["classes"]] == ["pc", "pc", "mac"]
+    pc = {"typical": 6, "weak": 4}
+    assert [c["cores"] for c in pack["classes"]] == [pc, pc, None]
     assert pack["families"] == [
         {"key": "cpu", "label": "CPU"},
         {"key": "mtl", "label": "Metal"},
@@ -255,7 +276,7 @@ def test_every_class_a_machine_can_have_has_a_colour():
     """A machine's class is its colour on the page; a class the stylesheet does not
     know would draw black."""
     css = (site.PKG / "assets" / "report.css").read_text()
-    for key, _, _ in site.CLASSES:
+    for key, *_ in site.CLASSES:
         assert f"--c-{key}:" in css and f".k-{key} " in css and f".bg-{key} " in css
 
 
@@ -409,20 +430,44 @@ def test_a_price_is_refused_only_where_there_is_nothing_to_evaluate(tmp_path):
     assert out == [None, None, None, True, True]
 
 
-# What two classes of four machines take for one task, in seconds; a third has none.
-TIMES = {"a": [1.2, 1.6, 6.5, 14], "b": [12, 24, 26, 39]}
+@needs_node
+def test_a_cpu_held_to_fewer_threads_costs_its_ladders_own_ratio(tmp_path):
+    """Reading and writing slow down by different amounts as threads are taken away,
+    each by the ratio its own thread ladder measured. A lane is never priced wider
+    than it ran, and a record with no ladder is priced as it ran."""
+    scaling = {
+        "prefill": {"threads": 16, "points": [[4, 100], [8, 180], [16, 300]]},
+        "decode": {"threads": 16, "points": [[4, 20], [8, 24], [16, 25]]},
+    }
+    full, eight, six, wide, bare = _node(
+        tmp_path,
+        f"var rec = {json.dumps({**RECORD, 'scaling': scaling})}, bare = {json.dumps(RECORD)};\n"
+        "var price = window.taskMath.price, task = {prompt: 2048, out: 64};\n"
+        "[price(rec, task), price(rec, task, 8), price(rec, task, 6), price(rec, task, 32),\n"
+        " price(bare, task, 6)].forEach(function (v) { console.log(JSON.stringify(v)); });\n",
+    )
+    assert eight["read_s"] == pytest.approx(full["read_s"] * 300 / 180)
+    assert eight["write_s"] == pytest.approx(full["write_s"] * 25 / 24)
+    # between two measured widths the rate is interpolated
+    assert six["read_s"] == pytest.approx(full["read_s"] * 300 / 140)
+    assert six["total"] == pytest.approx(six["read_s"] + six["write_s"])
+    assert six["read"] == pytest.approx(2048 / six["read_s"])
+    assert wide == full and bare == full
 
+
+# One class, in seconds for one task: what its CPUs take as a typical machine has
+# them, every time they can show, and its four machines on their GPUs. `none` is the
+# same four with no GPU in use.
 FLEET = """
 var F = window.fleetMath;
-var classes = [
-  {key: "a", share: 30, ref: [1.2, 1.6, 6.5, 14], now: [1.2, 1.6, 6.5, 14]},
-  {key: "b", share: 60, ref: [12, 24, 26, 39], now: [12, 24, 26, 39]},
-  {key: "c", share: 10, ref: [], now: []},
-];
-function cover(cs, split, optimal, target) {
-  return F.fleet(cs, split, optimal, target);
+var typical = [20], cpu = [10, 20, 40], gpu = [1.2, 1.6, 6.5, 14];
+var none = [null, null, null, null];
+function one(cpu, gpu, split, optimal, target, mid) {
+  return F.fleet([{key: "a", share: 1, typical: mid || typical, cpu: cpu, gpu: gpu}],
+                 split || [16, 68, 16], optimal || 15, target || 30)[0];
 }
 """
+PAD = 1.25  # a stretch reaches this far past its slowest and its fastest time
 
 
 @needs_node
@@ -449,18 +494,26 @@ def test_a_tier_split_is_the_share_of_the_curve_in_each_third(tmp_path):
 @needs_node
 def test_fleet_coverage_is_the_share_under_each_limit(tmp_path):
     (fleet,) = _node(
-        tmp_path, FLEET + "console.log(JSON.stringify(cover(classes, [16, 68, 16], 15, 30)));\n"
+        tmp_path,
+        FLEET
+        + """
+console.log(JSON.stringify(F.fleet([
+  {key: "a", share: 30, typical: typical, cpu: cpu, gpu: gpu},
+  {key: "b", share: 60, typical: typical, cpu: cpu, gpu: none},
+  {key: "c", share: 10, typical: [], cpu: [], gpu: []},
+], [16, 68, 16], 15, 30)));
+""",
     )
     a, b, c = fleet
     assert [x["share"] for x in fleet] == [0.3, 0.6, 0.1]  # shares of a whole
-    # every machine of the fast class is within both limits' reach; some of the
-    # slow class's stretch is past the tolerable one
-    assert a["cov"] == pytest.approx(1, abs=0.02) and 0.2 < b["cov"] < 0.9
-    for x in (a, b):
+    # every machine of the class on its GPUs is within the tolerable limit; some of
+    # the class on its CPUs is past it
+    assert a["cov"] == pytest.approx(1, abs=0.02) and 0.2 < b["cov"] < 0.95
+    for x, times in ((a, [1.2, 1.6, 6.5, 14]), (b, [10, 20, 40])):
         assert 0 <= x["opt"] <= x["cov"] <= 1  # optimal is a part of covered
-        assert x["fast"] < x["slow"]
         # the stretch reaches a little past the slowest and the fastest machine
-        assert x["fast"] < min(TIMES[x["key"]]) and x["slow"] > max(TIMES[x["key"]])
+        assert x["fast"] == pytest.approx(min(times) / PAD)
+        assert x["slow"] == pytest.approx(max(times) * PAD)
         # the curve's area is the class's share of the fleet, so areas compare
         area = sum(
             (p["d"] + q["d"]) / 2 * abs(math.log(p["t"] / q["t"]))
@@ -471,30 +524,146 @@ def test_fleet_coverage_is_the_share_under_each_limit(tmp_path):
         assert sum(t["w"] for t in x["tiers"]) == pytest.approx(x["share"])
         assert x["tiers"][0]["typical"] > x["tiers"][1]["typical"] > x["tiers"][2]["typical"]
         assert x["tiers"][0]["frac"] <= x["tiers"][1]["frac"] <= x["tiers"][2]["frac"]
-    # a class with no machine to place is in the fleet and covers none of it
+    # a class with no time to place is in the fleet and covers none of it
     assert c["curve"] is None and c["cov"] == 0 and c["opt"] == 0
 
 
 @needs_node
-def test_coverage_never_falls_when_machines_get_faster(tmp_path):
-    """Switching a backend on can only make a machine faster. The stretch a class
-    covers keeps its length (set by the reference) and slides with the mean, so no
-    part of the class gets slower — whatever the limit, whatever the split."""
+def test_classes_on_the_same_cpus_are_one_curve_until_a_gpu_moves_one(tmp_path):
+    same, moved = _node(
+        tmp_path,
+        FLEET
+        + """
+[none, gpu].forEach(function (g) {
+  var f = F.fleet([{key: "a", share: 1, typical: typical, cpu: cpu, gpu: g},
+                   {key: "b", share: 1, typical: typical, cpu: cpu, gpu: none}],
+                  [16, 68, 16], 15, 30);
+  console.log(JSON.stringify(f.map(function (c) { return [c.fast, c.slow, c.cov, c.opt]; })));
+});
+""",
+    )
+    assert same[0] == same[1] == moved[1]
+    # the class with the GPUs reaches further toward fast and covers more
+    assert moved[0][0] < moved[1][0] and moved[0][2] > moved[1][2]
+
+
+@needs_node
+def test_the_typical_machine_is_the_middle_of_the_stretch(tmp_path):
+    """The stretch reaches the time furthest from the typical one and as far on the
+    other side, so half of an even-handed class is faster than its typical machine
+    however lopsided the measured times are."""
     out = _node(
         tmp_path,
         FLEET
         + """
-var slow = [{key: "a", share: 1, ref: [1.2, 1.6, 6.5, 14], now: [7, 14, 15, 17]}];
-var mixed = [{key: "a", share: 1, ref: [1.2, 1.6, 6.5, 14], now: [1.2, 14, 15, 17]}];
-var fast = [{key: "a", share: 1, ref: [1.2, 1.6, 6.5, 14], now: [1.2, 1.6, 6.5, 14]}];
+[[10, 20, 40], [5, 20, 40], [20, 25, 80], [2, 40]].forEach(function (times) {
+  var c = one(times, none, [16, 68, 16], 10, 20);
+  console.log(JSON.stringify([c.fast, c.slow, c.cov]));
+});
+var lean = one([5, 20, 40], none, [16, 68, 16], 10, 20, [10, 40]);
+console.log(JSON.stringify([lean.fast, lean.slow, lean.cov]));
+""",
+    )
+    even, fast_outlier, slow_outlier, absent, mean = out
+    assert even == [pytest.approx(10 / PAD), pytest.approx(40 * PAD), pytest.approx(0.5)]
+    assert fast_outlier == [pytest.approx(5 / PAD), pytest.approx(80 * PAD), pytest.approx(0.5)]
+    assert slow_outlier == [pytest.approx(5 / PAD), pytest.approx(80 * PAD), pytest.approx(0.5)]
+    # the typical time need not be one of the measured ones
+    assert absent == [pytest.approx(2 / PAD), pytest.approx(200 * PAD), pytest.approx(0.5)]
+    # several typical times: their mean in log time, here 20 s again
+    assert mean == pytest.approx(fast_outlier)
+
+
+@needs_node
+def test_a_class_leans_toward_its_own_machines_inside_the_shared_stretch(tmp_path):
+    """Two classes that draw on the same CPUs cover the same stretch; the one whose
+    own machines are the faster ones has more of its weight at the fast end, by a
+    part of the gap that grows with how many machines it has."""
+    out = _node(
+        tmp_path,
+        FLEET
+        + """
+var pool = [10, 40], lean = function (own) { return F.lean(pool, cpu, own); };
+console.log(JSON.stringify([lean([10]), lean([10, 10, 10, 10]), lean([40]), lean(pool), lean([])]));
+[0.1, 0, -0.1].forEach(function (by) {
+  var c = F.fleet([{key: "a", share: 1, typical: typical, cpu: cpu, gpu: none, lean: by}],
+                  [16, 68, 16], 10, 20)[0];
+  console.log(JSON.stringify([c.fast, c.slow, c.cov, c.tiers.map(function (t) { return t.w; })]));
+});
+""",
+    )
+    leans, fast, even, slow = out
+    # the pool is centred on 20 s and its stretch runs from 8 s to 50 s
+    gap, span = math.log(20 / 10), math.log(50 / 8)
+    assert leans[0] == pytest.approx(1 / 5 * gap / span)  # one machine counts for a fifth
+    assert leans[1] == pytest.approx(4 / 8 * gap / span)  # four for a half
+    assert leans[2] == pytest.approx(-leans[0])
+    assert leans[3:] == [pytest.approx(0), 0]  # the pool itself does not lean
+    # the stretch is the same; the weight inside it is not
+    assert fast[:2] == even[:2] == slow[:2]
+    assert fast[2] > even[2] > slow[2] and even[2] == pytest.approx(0.5)
+    assert even[3] == [pytest.approx(w, abs=1e-4) for w in (0.16, 0.68, 0.16)]
+    assert fast[3][2] > even[3][2] > slow[3][2] and fast[3][0] < even[3][0] < slow[3][0]
+    for c in (fast, even, slow):
+        assert sum(c[3]) == pytest.approx(1)
+
+
+@needs_node
+def test_a_gpu_only_pulls_an_end_of_the_stretch_in(tmp_path):
+    cases = {
+        "cpu": "one(cpu, none)",
+        "some": "one(cpu, [null, 3, null, null])",  # one machine of four has a GPU
+        "slower": "one(cpu, [60, 80, 70, 90])",  # every GPU is slower than every CPU
+        "all": "one(cpu, gpu)",
+        "mixed": "one(cpu, [3, 80, 6, 20])",  # the slowest GPU still loses to the slow CPUs
+        "gpu_only": "one([], [null, 3, 12, null])",
+        "single": "one([10], [null], null, null, null, [10])",
+    }
+    out = _node(
+        tmp_path,
+        FLEET
+        + "".join(
+            f"var c = {call}; console.log(JSON.stringify([c.fast, c.slow]));\n"
+            for call in cases.values()
+        ),
+    )
+    ends = dict(zip(cases, out, strict=True))
+    assert ends["cpu"] == [pytest.approx(10 / PAD), pytest.approx(40 * PAD)]
+    # the fastest machine has the GPU; the slowest is still on the slowest CPU
+    assert ends["some"] == [pytest.approx(3 / PAD), pytest.approx(40 * PAD)]
+    assert ends["slower"] == ends["cpu"]
+    # the slowest machine has the slowest of each and runs on the better one
+    assert ends["all"] == [pytest.approx(1.2 / PAD), pytest.approx(14 * PAD)]
+    assert ends["mixed"] == [pytest.approx(3 / PAD), pytest.approx(40 * PAD)]
+    # with no CPU time, the machines that have a GPU are the class
+    assert ends["gpu_only"] == [pytest.approx(3 / PAD), pytest.approx(12 * PAD)]
+    # one time is not a class: the stretch has a least length, about its middle
+    assert ends["single"] == [pytest.approx(5), pytest.approx(20)]
+
+
+@needs_node
+def test_coverage_never_falls_when_a_backend_is_added(tmp_path):
+    """A backend switched on gives some machines a GPU or a faster one. Neither end
+    of the stretch moves later, so no part of the class gets slower — whatever the
+    limit, the split or the class's lean."""
+    out = _node(
+        tmp_path,
+        FLEET
+        + """
+var steps = [none, [50, null, null, null], [50, 3, null, null], [50, 3, null, 30],
+             [50, 3, 9, 30], [20, 3, 9, 30], [2, 3, 9, 5], [1.2, 1.6, 6.5, 5]];
 var worst = 0;
 [[16, 68, 16], [60, 30, 10], [10, 30, 60], [40, 20, 40]].forEach(function (split) {
   [0.5, 1, 2, 5, 10, 20, 30, 45, 60, 120, 600].forEach(function (limit) {
-    var c = [slow, mixed, fast].map(function (cs) {
-      return cover(cs, split, limit / 2, limit)[0];
+    [0, 0.08, -0.08].forEach(function (by) {
+    var c = steps.map(function (g) {
+      return F.fleet([{key: "a", share: 1, typical: typical, cpu: cpu, gpu: g, lean: by}],
+                     split, limit / 2, limit)[0];
     });
-    worst = Math.max(worst, c[0].cov - c[1].cov, c[1].cov - c[2].cov,
-                     c[0].opt - c[1].opt, c[1].opt - c[2].opt);
+    for (var i = 1; i < c.length; i++) {
+      worst = Math.max(worst, c[i - 1].cov - c[i].cov, c[i - 1].opt - c[i].opt);
+    }
+    });
   });
 });
 console.log(JSON.stringify(worst));

@@ -64,19 +64,28 @@
   /* what the allocator reserves for a context that holds the task */
   const reserve = (rec, p) => rec.mem ? rec.mem.weights + rec.mem.compute + rec.mem.kv_base + rec.mem.kv_per_tok * Math.max(512, p.prompt + p.out) : null;
 
-  /* The fleet for the task in view: per class, the times of its machines on their
-     fastest device of all (the reference) and on the backends in use. */
+  /* The fleet for the task in view. Per class: the times of the CPUs it draws on
+     — held to the cores a typical machine has, and with those as they ran and held
+     to a weak machine's (`cores`; as they ran where the class names none) — and per
+     machine its fastest GPU in use. Classes that draw on the same CPUs (`cpus`)
+     share every one of them, and each leans toward its own machines' — a property
+     of the machines, so the CPU times behind it are read whatever is switched on. */
   let FLEET = [];
-  function fleetNow(all, p) {
-    const ref = D.machines.map(mc => devices(mc, state.model, p, true)[0]).filter(d => d && d.v);
-    const classes = KINDS.map(k => ({
-      key: k.key, share: state.fleet.kind[k.key],
-      ref: ref.filter(d => d.mc.kind === k.key).map(d => d.v.total),
-      now: all.filter(d => d.mc.kind === k.key && d.v).map(d => d.v.total),
-    }));
-    const out = window.fleetMath.fleet(classes, TIERS.map(t => state.fleet.tier[t.key]), state.optimal, state.target);
-    out.forEach((c, i) => { c.machines = classes[i].now.length; });
-    return out;
+  function fleetNow(p) {
+    const rows = D.machines.map(mc => {
+      const opts = devices(mc, state.model, p).filter(d => d.v);
+      const gpu = opts.find(d => d.lane.family !== "cpu");
+      return { mc: mc, cpu: devices(mc, state.model, p, true).find(d => d.lane.family === "cpu" && d.v), gpu: gpu ? gpu.v.total : null };
+    });
+    const classes = KINDS.map(k => {
+      const cpus = rows.filter(r => r.cpu && KIND[r.mc.kind].cpus === k.cpus), norm = k.cores ? k.cores.typical : null;
+      const at = (rs, n) => rs.map(r => price(r.cpu.rec, p, n).total);
+      const typical = at(cpus, norm), cpu = k.cores ? typical.concat(at(cpus, null), at(cpus, k.cores.weak)) : typical;
+      return { key: k.key, share: state.fleet.kind[k.key], typical: state.on.cpu ? typical : [], cpu: state.on.cpu ? cpu : [],
+               lean: window.fleetMath.lean(typical, cpu, at(cpus.filter(r => r.mc.kind === k.key), norm)),
+               gpu: rows.filter(r => r.mc.kind === k.key).map(r => r.gpu) };
+    });
+    return window.fleetMath.fleet(classes, TIERS.map(t => state.fleet.tier[t.key]), state.optimal, state.target);
   }
 
   /* ---------- formatting ---------- */
@@ -169,7 +178,6 @@
   }
 
   /* ---------- coverage: how the fleet is spread over whole-task time ---------- */
-  let mapGeo = null;
   function renderMap(all) {
     /* the key first: its height is part of what the chart has to fit beside */
     document.getElementById("map-key").innerHTML = `<span><svg width="22" height="10"><line x1="0" x2="22" y1="5" y2="5" class="optimal"/></svg>optimal up to</span><span><svg width="22" height="10"><line x1="0" x2="22" y1="5" y2="5" class="target"/></svg>tolerable up to</span><span><svg width="14" height="12"><rect width="14" height="12" rx="2" class="miss"/></svg>unusable</span>`
@@ -194,7 +202,7 @@
     svg += `<text x="${(m.l + W - m.r) / 2}" y="${H - 8}" text-anchor="middle" class="t-ink">Whole task, log scale</text>`;
     /* one height scale for every class, so a class's area is its share of the fleet */
     const peak = Math.max.apply(null, [1e-9].concat(FLEET.map(c => c.curve ? Math.max.apply(null, c.curve.map(q => q.d)) : 0))), scale = (LH - 26) / peak;
-    const base = {}, at = {};
+    const base = {};
     FLEET.forEach((c, i) => {
       const y0 = m.t + LH * (i + 1) - 8, k = c.key, top = q => (y0 - Math.min(LH - 14, q.d * scale)).toFixed(1);
       base[k] = y0;
@@ -214,7 +222,6 @@
     /* the measured machines, on their class's baseline */
     const pts = all.filter(d => d.v).map(d => ({ d: d, x: sx(d.v.total), y: base[d.mc.kind], sel: state.sel.indexOf(d.mc.id) >= 0 }));
     pts.forEach(q => {
-      at[q.d.mc.id] = q;
       svg += dot(q.x.toFixed(1), q.y, 5, `dot pin k-${q.d.mc.kind}`,
         `data-machine="${esc(q.d.mc.id)}" tabindex="0" role="button" aria-label="${esc(q.d.mc.name)}, ${esc(fmtS(q.d.v.total))} on ${esc(runsOn(q.d.lane))}"`);
     });
@@ -224,28 +231,8 @@
       svg += `<circle cx="${q.x.toFixed(1)}" cy="${q.y}" r="9" class="halo"/><text x="${(right ? q.x + 12 : q.x - 12).toFixed(1)}" y="${q.y - 10 - 13 * (n - 1)}" text-anchor="${right ? "start" : "end"}" class="t-lab">${esc(q.d.mc.name)} · ${q.d.v.est ? "~" : ""}${esc(fmtS(q.d.v.total))}</text>`;
     });
     if (!pts.length) svg += `<text x="${(m.l + W - m.r) / 2}" y="${(m.t + H - m.b) / 2}" text-anchor="middle" class="t-ink">No machine to show. Switch a backend on.</text>`;
-    svg += `<g id="map-hover" pointer-events="none"></g>`;
     el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="How each class of the fleet is spread over whole-task time">`
       + `<defs><clipPath id="made-clip"><rect x="0" y="0" width="${tx.toFixed(1)}" height="${H}"/></clipPath><clipPath id="best-clip"><rect x="0" y="0" width="${ox.toFixed(1)}" height="${H}"/></clipPath></defs>${svg}</svg>`;
-    mapGeo = { sx: sx, at: at, W: W, m: m };
-  }
-  /* The machine's other devices, drawn on its baseline while its ring is pointed at. */
-  function showGhosts(mid) {
-    const layer = document.getElementById("map-hover"), g = mapGeo;
-    if (!layer || !g || !g.at[mid]) return;
-    const me = g.at[mid];
-    let svg = "", n = 0;
-    devices(MACHINE[mid], state.model, task(), true).forEach(d => {
-      if (d.lane.id === me.d.lane.id || !d.v) return;
-      const x = Math.max(g.m.l, Math.min(g.W - g.m.r, g.sx(d.v.total))), left = x > g.W - g.m.r - 170;
-      svg += dot(x.toFixed(1), me.y, 4, `dot pin k-${d.mc.kind}`)
-        + `<text x="${(left ? x - 8 : x + 8).toFixed(1)}" y="${me.y - 9 - 13 * n++}" text-anchor="${left ? "end" : "start"}" class="t-lab">${esc(inMachine(d.lane))} · ${d.v.est ? "~" : ""}${esc(fmtS(d.v.total))}${state.on[d.lane.family] ? "" : " (off)"}</text>`;
-    });
-    layer.innerHTML = svg;
-  }
-  function hideGhosts() {
-    const layer = document.getElementById("map-hover");
-    if (layer) layer.innerHTML = "";
   }
 
   /* ---------- compare: N machines side by side ---------- */
@@ -458,7 +445,7 @@
     const c = FLEET.find(x => x.key === key);
     let html = `<b>${esc(KIND[key].label)}</b><span class="num">${pct(c.share)}</span> of the fleet<br><span class="num">${pct(c.opt)}</span> optimal · <span class="num">${Math.round(c.cov * 100) - Math.round(c.opt * 100)}%</span> tolerable`;
     if (!c.curve) return html;
-    html += `<br><span class="num">${esc(fmtS(c.fast))}</span> to <span class="num">${esc(fmtS(c.slow))}</span>, from ${c.machines} measured machine${c.machines === 1 ? "" : "s"}`;
+    html += `<br><span class="num">${esc(fmtS(c.fast))}</span> to <span class="num">${esc(fmtS(c.slow))}</span>`;
     TIERS.slice().reverse().forEach((t, j) => { html += `<br>${t.label.toLowerCase()} end: typical <span class="num">${esc(fmtS(c.tiers[TIERS.length - 1 - j].typical))}</span>`; });
     return html;
   }
@@ -471,13 +458,10 @@
   }
   const hit = (ev, sel) => ev.target.closest && ev.target.closest(sel);
   document.addEventListener("mousemove", ev => { const c = hit(ev, "[data-kind]"); if (c) showTip(ev, kindTip(c.dataset.kind)); });
-  document.addEventListener("mouseover", ev => { const t = hit(ev, "[data-machine]"); if (t) { showTip(ev, machineTip(t.dataset.machine)); showGhosts(t.dataset.machine); } });
+  document.addEventListener("mouseover", ev => { const t = hit(ev, "[data-machine]"); if (t) showTip(ev, machineTip(t.dataset.machine)); });
   document.addEventListener("mouseout", ev => {
-    if (hit(ev, "[data-kind]")) hideTip();
-    if (hit(ev, "[data-machine]")) { hideTip(); hideGhosts(); }
+    if (hit(ev, "[data-kind]") || hit(ev, "[data-machine]")) hideTip();
   });
-  document.addEventListener("focusin", ev => { const t = hit(ev, "[data-machine]"); if (t) showGhosts(t.dataset.machine); });
-  document.addEventListener("focusout", ev => { if (hit(ev, "[data-machine]")) hideGhosts(); });
   function onPick(ev) {
     if (ev.type === "keydown" && ev.key !== "Enter" && ev.key !== " ") return;
     const t = hit(ev, "[data-machine], [data-remove], [data-sort]");
@@ -615,7 +599,7 @@
     document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === state.view)));
     ["coverage", "compare", "data"].forEach(v => { document.getElementById("view-" + v).hidden = v !== state.view; });
     const all = priced(state.model, task());
-    FLEET = fleetNow(all, task());
+    FLEET = fleetNow(task());
     refresh.forEach(f => f());
     renderSel();
     renderAnswer(all);

@@ -35,8 +35,14 @@ show what is behind them:
 - **Data** — every device as a searchable, sortable table.
 
 A machine is priced on its fastest device among the backends in use. A class is
-a fixed stretch of time anchored on its measured machines, and the split spreads
-the class over it — `assets/fleet.js` states the model in full.
+a stretch of time, from its slowest machine to its fastest, and the split spreads
+the class over it. On the CPU backend the two PC classes are one population,
+centred on every PC's CPU held to 6 cores by what its own thread ladder
+measured, so the many-core machines on the shelf do not pass for the fleet. The
+stretch reaches the fastest of them as it ran, and as far on the slow side.
+Inside it each PC class leans toward its own machines: the ones with a GPU have
+the faster CPUs. A GPU in use pulls a class's ends in. `assets/fleet.js` states
+the model in full.
 
 ## Loaders
 

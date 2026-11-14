@@ -5,20 +5,38 @@
  * together across machines, so the model works on that one number, in log time.
  *
  * A fleet is a share per machine class, and inside each class a low / mid / high
- * split. A class is a fixed stretch of time; the split spreads the class over the
- * stretch as one smooth curve (a Beta density). The stretch's thirds are the low,
- * mid and high tiers, and the curve is the one whose share in each third is the
- * share set. The split never moves the ends of the stretch.
+ * split. A class is a stretch of time, from its slowest machine to its fastest; the
+ * split spreads the class over the stretch as one smooth curve (a Beta density).
+ * The stretch's thirds are the low, mid and high tiers, and the curve is the one
+ * whose share in each third is the share set. The split never moves the ends of
+ * the stretch.
  *
- * What the measurements set:
- *   - `ref`, the class's machines each on its fastest device: the length of the
- *     stretch, from the slowest to the fastest machine plus PAD at each end, pulled
- *     toward the median class's length
- *   - `now`, the same machines on the backends in use: where the stretch sits, from
- *     their mean log time
- * Taking a backend away slides a class without reshaping it, and a machine never
- * gets faster for having fewer devices to choose from, so coverage never rises when
- * a backend is switched off.
+ * The measurements set the middle and the two ends:
+ *   - `typical`, the times of the CPUs the class draws on, each as a typical
+ *     machine has it. Their mean, in log time, is the middle of the stretch.
+ *   - `cpu`, every time those CPUs can show, the typical ones among them. With no
+ *     GPU in use the stretch reaches PAD past the one furthest from the middle,
+ *     and as far on the other side: the fleet has machines as far below the
+ *     typical one as the fastest measured is above it.
+ *   - `gpu`, one entry per machine of the class: its time on its fastest GPU in
+ *     use, null without one. A GPU only pulls an end in. The fast end is the
+ *     fastest GPU's where that beats the fastest CPU. The slow end is the slowest
+ *     GPU's where every machine has one and it beats the slowest CPU: the slowest
+ *     machine of a class has the slowest of each and runs on the better of the two.
+ * With no CPU time the GPUs set both ends, over the machines that have one. A
+ * stretch shorter than MIN_SPAN is widened about its middle.
+ *
+ * Classes handed the same CPU times cover the same stretch until a GPU moves one
+ * of them, and each leans inside it toward where its own machines sit: a class
+ * whose machines are faster than the CPUs it draws on has more of its weight at
+ * the fast end. The lean moves the mean of the curve and keeps how concentrated the
+ * split made it, so a class that leans holds other shares in its thirds than the
+ * split set. It counts for n / (n + SHRINK) with n machines, and it is the same
+ * whatever backends are in use.
+ *
+ * A machine never gets slower for having more devices to choose from, so with the
+ * CPU in use neither end moves later when a backend is added, and coverage never
+ * falls.
  *
  * A class's coverage is the share of its curve at or under the time limit, and its
  * curve is returned scaled by the class's share of the fleet, so areas compare
@@ -28,23 +46,20 @@
 window.fleetMath = (function () {
   "use strict";
 
-  const SHRINK = 2;                   /* weight of the pooled length, counted in machines */
-  const PAD = 0.25;                   /* of a class's measured span, added at each end */
-  const DEFAULT_SPAN = Math.log(6);   /* a class's length when nothing can be pooled */
+  const PAD = Math.log(1.25);        /* how far a stretch reaches past its slowest and fastest time */
+  const MIN_SPAN = Math.log(4);      /* the shortest stretch: a class is never one point */
+  const SHRINK = 4;                  /* the machines at which a class's own lean counts for half */
   const CURVE_POINTS = 120;
   /* the three tiers as stretches of [0, 1], running from the slow end to the fast */
   const TIERS = [[0, 1 / 3], [1 / 3, 2 / 3], [2 / 3, 1]];
 
   const sum = a => a.reduce((x, y) => x + y, 0);
   const mean = a => sum(a) / a.length;
+  const most = a => Math.max.apply(null, a), least = a => Math.min.apply(null, a);
   const clamp = v => Math.max(0, Math.min(1, v));
   function norm(a) {
     const s = sum(a);
     return s > 0 ? a.map(v => v / s) : a.map(() => 1 / a.length);
-  }
-  function median(a) {
-    const s = a.slice().sort((x, y) => x - y), n = s.length;
-    return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
   }
 
   function lgamma(x) {
@@ -119,35 +134,60 @@ window.fleetMath = (function () {
     return (curves[key] = { a: a, b: bFor(a) });
   }
 
+  /* The CPU stretch in log time: centred on the typical times, reaching PAD past
+   * the time furthest from there and as far on the other side. */
+  function cpuStretch(typical, cpu) {
+    const all = cpu.map(Math.log), middle = mean(typical.length ? typical.map(Math.log) : all);
+    const reach = Math.max(most(all) - middle, middle - least(all)) + PAD;
+    return { late: middle + reach, early: middle - reach };
+  }
+
+  /* How far a class leans inside its CPU stretch, as a part of the stretch's length:
+   * positive toward the fast end. `own` is the typical times of the class's own
+   * machines, `typical` and `cpu` those of every CPU it draws on. */
+  function lean(typical, cpu, own) {
+    if (!own.length || !typical.length || !cpu.length) return 0;
+    const s = cpuStretch(typical, cpu), gap = mean(typical.map(Math.log)) - mean(own.map(Math.log));
+    return own.length / (own.length + SHRINK) * gap / (s.late - s.early);
+  }
+
+  /* A curve with its mean moved by `by` and its concentration kept. */
+  function leaned(tc, by) {
+    const n = tc.a + tc.b, m = Math.max(0.05, Math.min(0.95, tc.a / n + by));
+    return by ? { a: n * m, b: n * (1 - m) } : tc;
+  }
+
   /* The fleet for one task.
-   *   classes: [{key, share, ref: [seconds…], now: [seconds…]}]
-   *   split:   [low, mid, high] shares inside every class
+   *   classes: [{key, share, typical: [seconds…], cpu: [seconds…],
+   *              gpu: [seconds or null, one per machine], lean}]
+   *   split:   [low, mid, high] shares inside every class, before its `lean`
    *   optimal, target: the two time limits in seconds, optimal <= target
    * Returns one entry per class, in order: its normalised `share`; `cov` and `opt`,
    * the share of the class within `target` and within `optimal`; `fast` and `slow`,
    * the ends of its stretch in seconds; `curve`, `[{t, d}]` from slow to fast, and
    * `cuts`, the same at the two tier boundaries; `tiers`, slowest first, each with
    * its share of the fleet `w`, the share of it within target `frac`, and its
-   * median time `typical`. A class with no machine to place has `curve` null and
+   * median time `typical`. A class with no time to place has `curve` null and
    * covers nothing. */
   function fleet(classes, split, optimal, target) {
-    const shares = norm(classes.map(c => c.share)), parts = norm(split), tc = tierCurve(split);
-    const logs = classes.map(c => ({ ref: c.ref.map(Math.log), now: c.now.map(Math.log) }));
-    const own = logs.map(l => l.ref.length > 1
-      ? (Math.max.apply(null, l.ref) - Math.min.apply(null, l.ref)) * (1 + 2 * PAD) : null);
-    const measured = own.filter(v => v !== null);
-    const pooled = measured.length ? median(measured) : DEFAULT_SPAN;
-    const edges = [0, betaBelow(1 / 3, tc.a, tc.b), betaBelow(2 / 3, tc.a, tc.b), 1];
+    const shares = norm(classes.map(c => c.share)), set = tierCurve(split);
     return classes.map((c, i) => {
-      const ref = logs[i].ref, now = logs[i].now;
+      const tc = leaned(set, c.lean || 0), edges = [0, betaBelow(1 / 3, tc.a, tc.b), betaBelow(2 / 3, tc.a, tc.b), 1];
       const out = { key: c.key, share: shares[i], cov: 0, opt: 0, fast: null, slow: null, curve: null, cuts: null,
-                    tiers: TIERS.map((t, j) => ({ w: shares[i] * parts[j], frac: 0, typical: null })) };
-      if (!ref.length || !now.length) return out;
-      const span = own[i] === null ? pooled
-        : (SHRINK * pooled + (ref.length - 1) * own[i]) / (SHRINK + ref.length - 1);
-      /* the stretch keeps its place relative to the class's mean, and the mean follows the backends */
-      const middle = mean(now) + (Math.max.apply(null, ref) + Math.min.apply(null, ref)) / 2 - mean(ref);
-      const slow = middle + span / 2, timeAt = u => Math.exp(slow - u * span);
+                    tiers: TIERS.map((t, j) => ({ w: shares[i] * (edges[j + 1] - edges[j]), frac: 0, typical: null })) };
+      const cpu = c.cpu.map(Math.log), gpu = c.gpu.filter(t => t !== null).map(Math.log);
+      if (!cpu.length && !gpu.length) return out;
+      let late = Infinity, early = Infinity;
+      if (cpu.length) {
+        const s = cpuStretch(c.typical, c.cpu);
+        late = s.late;
+        early = s.early;
+      }
+      if (gpu.length) {
+        early = Math.min(early, least(gpu) - PAD);
+        if (!cpu.length || gpu.length === c.gpu.length) late = Math.min(late, most(gpu) + PAD);
+      }
+      const span = Math.max(late - early, MIN_SPAN), slow = (late + early + span) / 2, timeAt = u => Math.exp(slow - u * span);
       const below = limit => betaBelow(clamp((slow - Math.log(limit)) / span), tc.a, tc.b);
       const over = below(target);
       out.cov = 1 - over;
@@ -169,5 +209,5 @@ window.fleetMath = (function () {
     });
   }
 
-  return { betaBelow: betaBelow, betaAt: betaAt, betaPoint: betaPoint, tierCurve: tierCurve, fleet: fleet };
+  return { betaBelow: betaBelow, betaAt: betaAt, betaPoint: betaPoint, tierCurve: tierCurve, lean: lean, fleet: fleet };
 })();
